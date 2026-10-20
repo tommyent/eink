@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-palette="dark">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,11 +8,34 @@
   </head>
   <body>
     <main>
-      <label>
-        <input id="enabled" type="checkbox" disabled>
-        E-ink look for Gmail
-      </label>
-      <p class="hint">Follows the Mac's appearance: warm paper in light mode, dark gray in dark mode.</p>
+      <header>
+        <h1>Gmail E-ink</h1>
+        <div class="preview" aria-hidden="true"><i></i><i></i><i></i></div>
+      </header>
+      <p id="caption"></p>
+      <div class="row">
+        <label id="enabled-label" for="enabled">E-ink</label>
+        <button id="enabled" type="button" role="switch" aria-checked="true" aria-labelledby="enabled-label" disabled></button>
+      </div>
+      <fieldset id="times" disabled>
+        <fieldset class="row" role="radiogroup" aria-labelledby="day-legend">
+          <legend id="day-legend">Day <span id="now-day" class="now" hidden>now</span></legend>
+          <div class="segments">
+            <label><input type="radio" name="day" value="warm"><span>Warm</span></label>
+            <label><input type="radio" name="day" value="dark"><span>Dark</span></label>
+            <label><input type="radio" name="day" value="off"><span>Off</span></label>
+          </div>
+        </fieldset>
+        <fieldset class="row" role="radiogroup" aria-labelledby="night-legend">
+          <legend id="night-legend">Night <span id="now-night" class="now" hidden>now</span></legend>
+          <div class="segments">
+            <label><input type="radio" name="night" value="warm"><span>Warm</span></label>
+            <label><input type="radio" name="night" value="dark"><span>Dark</span></label>
+            <label><input type="radio" name="night" value="off"><span>Off</span></label>
+          </div>
+        </fieldset>
+      </fieldset>
+      <p class="hint">Day and night follow the Mac's light and dark appearance.</p>
       <p id="status" role="status" aria-live="polite"></p>
     </main>
     <script src="popup.js"></script>

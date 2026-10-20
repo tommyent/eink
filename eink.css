@@ -1,31 +1,29 @@
 /*
  * Whole-page filters instead of Gmail's obfuscated class names: grayscale keeps
  * Gmail's own light/dark contrast (unread bold, selected rows, focus rings) and
- * drops every accent colour. The palette follows prefers-color-scheme, so it
- * switches live when macOS changes appearance.
+ * drops every accent colour. content.js sets data-eink to the palette the popup
+ * chose for day (Mac light mode) or night (Mac dark mode).
  */
 
-/* Warm e-ink: white page becomes warm paper, text stays dark gray. */
-html[data-eink] {
+/* Warm paper: white page becomes warm paper, text stays dark gray. */
+html[data-eink="warm"] {
   filter: grayscale(1) brightness(0.85) sepia(0.45) brightness(0.97);
 }
 
-@media (prefers-color-scheme: dark) {
-  /* Dark e-ink: inverted to a dark-gray page with soft light-gray text. */
-  html[data-eink] {
-    filter: invert(0.85) grayscale(1);
-  }
+/* Dark e-ink: inverted to a dark-gray page with soft light-gray text. */
+html[data-eink="dark"] {
+  filter: invert(0.85) grayscale(1);
+}
 
-  /* Invert photos and avatars back so they read normally (slightly dimmed by the outer filter).
-     Gmail draws many icons as sprites on a transparent cleardot.gif <img>; those stay inverted. */
-  html[data-eink] img:not([src*="cleardot"]),
-  html[data-eink] video,
-  html[data-eink] picture,
-  html[data-eink] canvas {
-    filter: invert(1);
-  }
+/* Invert photos and avatars back so they read normally (slightly dimmed by the outer filter).
+   Gmail draws many icons as sprites on a transparent cleardot.gif <img>; those stay inverted. */
+html[data-eink="dark"] img:not([src*="cleardot"]),
+html[data-eink="dark"] video,
+html[data-eink="dark"] picture,
+html[data-eink="dark"] canvas {
+  filter: invert(1);
+}
 
-  html[data-eink] picture img {
-    filter: none;
-  }
+html[data-eink="dark"] picture img {
+  filter: none;
 }

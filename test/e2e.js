@@ -1,6 +1,6 @@
 // Loads the unpacked extension in headless Chrome, serves fixture.html at a
-// mail.google.com URL, screenshots both palettes and checks contrast and the
-// live toggle. Run: npm i --no-save playwright-core && node test/e2e.js
+// mail.google.com URL, drives the popup switches and checks screenshots,
+// contrast, live apply and persistence. Run: npm i --no-save playwright-core && node test/e2e.js
 const { chromium } = require("playwright-core");
 const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
@@ -52,51 +52,132 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
     }, png);
   }
   const filter = () => gmail.evaluate(() => getComputedStyle(document.documentElement).filter);
+  const palette = value => gmail.waitForFunction(v => document.documentElement.getAttribute("data-eink") === v, value);
+  const unstyled = async () => {
+    await gmail.waitForFunction(() => !document.documentElement.hasAttribute("data-eink"));
+    assert.equal(await filter(), "none");
+  };
+  // The Mac's appearance, as seen by both the Gmail tab and the popup.
+  const mac = async scheme => { await gmail.emulateMedia({ colorScheme: scheme }); await popup.emulateMedia({ colorScheme: scheme }); };
+  const selected = name => popup.$eval(`input[name=${name}]:checked`, input => input.value);
 
-  await gmail.goto(inbox);
-  await gmail.waitForFunction(() => document.documentElement.hasAttribute("data-eink"));
-  await gmail.focus("#subject");
-
+  // Gmail's text, link and row colours as rendered under the filter, checked for WCAG AA.
   const pairs = [["text", "page"], ["secondary", "page"], ["link", "page"], ["text", "read"], ["secondary", "read"], ["text", "selected"]];
-  const results = {};
-  for (const scheme of ["light", "dark"]) {
-    // Switched on the open page, without reload, as when macOS changes appearance.
-    await gmail.emulateMedia({ colorScheme: scheme });
-    const name = scheme === "light" ? "warm" : "dark";
-    assert.match(await filter(), scheme === "light" ? /sepia/ : /invert/, `${name} filter`);
+  async function checkGmail(name) {
     await gmail.screenshot({ path: path.join(shots, `${name}.png`) });
     const colours = {};
     for (const key of ["page", "text", "secondary", "link", "read", "selected"]) colours[key] = await sample(`#sw-${key}`);
-    const photo = await sample(".photo");
-    console.log(`${name}: page ${hex(colours.page)}, text ${hex(colours.text)}, photo centre ${hex(photo)}`);
+    console.log(`${name}: page ${hex(colours.page)}, text ${hex(colours.text)}, photo centre ${hex(await sample(".photo"))}`);
     for (const [fg, bg] of pairs) {
       const ratio = contrast(colours[fg], colours[bg]);
       console.log(`  ${fg} on ${bg}: ${ratio.toFixed(2)}:1`);
       assert.ok(ratio >= 4.5, `${name} ${fg} on ${bg} fails WCAG AA`);
     }
     // No accent colour: dark is neutral gray, warm only has the paper's own hue (r >= g >= b; Gmail blue had b > r).
-    for (const [r, g, b] of Object.values(colours)) assert.ok(scheme === "dark" ? Math.max(r, g, b) - Math.min(r, g, b) <= 6 : r >= g - 3 && g >= b - 3, `${name} swatch ${hex([r, g, b])} keeps colour`);
-    results[name] = colours;
+    for (const [r, g, b] of Object.values(colours)) assert.ok(name === "dark" ? Math.max(r, g, b) - Math.min(r, g, b) <= 6 : r >= g - 3 && g >= b - 3, `${name} swatch ${hex([r, g, b])} keeps colour`);
+    return colours;
   }
-  assert.ok(luminance(results.dark.page) < 0.05 && luminance(results.dark.page) > 0, "dark page is dark gray, not black");
-  assert.ok(results.warm.page[0] > results.warm.page[2] + 15, "warm page is warm paper");
 
-  // Popup toggle reaches the open Gmail tab live.
+  // Popup text and control outlines against its screen colour (AA 4.5 for text, 3 for controls and focus ring).
+  async function checkPopup(name) {
+    await popup.locator("body").screenshot({ path: path.join(shots, `popup-${name}.png`) });
+    const css = await popup.evaluate(() => {
+      const style = (selector, prop) => getComputedStyle(document.querySelector(selector))[prop];
+      const screen = style("main", "backgroundColor");
+      return [
+        ["title", style("h1", "color"), screen, 4.5], ["caption", style("#caption", "color"), screen, 4.5],
+        ["hint", style(".hint", "color"), screen, 4.5], ["label", style("#enabled-label", "color"), screen, 4.5],
+        ["segment", style(".segments input:not(:checked) + span", "color"), screen, 4.5],
+        ["chosen segment", style(".segments input:checked + span", "color"), style(".segments input:checked + span", "backgroundColor"), 4.5],
+        ["segment outline", style(".segments", "borderTopColor"), screen, 3], ["switch", style("#enabled", "borderTopColor"), screen, 3],
+        // The ring sits on the switch, or on the segment span of a focused radio (drawn inside the span).
+        ["focus ring", ...(() => {
+          const active = document.activeElement, ring = active.matches("input") ? active.nextElementSibling : active;
+          const ringStyle = getComputedStyle(ring);
+          return [ringStyle.outlineStyle === "none" ? "rgb(0, 0, 0, 0)" : ringStyle.outlineColor, active.matches("input:checked") ? ringStyle.backgroundColor : screen];
+        })(), 3]
+      ];
+    });
+    const rgb = value => value.match(/[\d.]+/g).slice(0, 3).map(Number);
+    for (const [key, fg, bg, limit] of css) {
+      const ratio = contrast(rgb(fg), rgb(bg));
+      console.log(`  popup ${name} ${key}: ${ratio.toFixed(2)}:1`);
+      assert.ok(ratio >= limit, `popup ${name} ${key} below ${limit}:1`);
+    }
+  }
+
   const popup = await context.newPage();
+  await popup.setViewportSize({ width: 296, height: 400 });
   await popup.goto(`chrome-extension://${id}/popup.html`);
-  await popup.waitForSelector("#enabled:not([disabled]):checked");
-  await popup.click("#enabled");
-  await gmail.waitForFunction(() => !document.documentElement.hasAttribute("data-eink"));
-  assert.equal(await filter(), "none");
-  await gmail.emulateMedia({ colorScheme: "light" });
+  await popup.waitForSelector("#enabled:not([disabled])");
+  assert.equal(await popup.getAttribute("#enabled", "aria-checked"), "true", "E-ink defaults on");
+  assert.equal(await selected("day"), "warm", "Day defaults to Warm");
+  assert.equal(await selected("night"), "dark", "Night defaults to Dark");
+
+  // Defaults, switching live with the Mac's appearance and no reload.
+  await mac("light");
+  await gmail.goto(inbox);
+  await palette("warm");
+  await gmail.focus("#subject");
+  const warm = await checkGmail("warm");
+  assert.ok(warm.page[0] > warm.page[2] + 15, "warm page is warm paper");
+  assert.equal(await popup.isVisible("#now-day"), true, "now marks Day");
+  await popup.keyboard.press("Tab");
+  assert.equal(await popup.evaluate(() => document.activeElement.id), "enabled");
+  await checkPopup("day-warm");
+  await mac("dark");
+  await palette("dark");
+  const dark = await checkGmail("dark");
+  assert.ok(luminance(dark.page) < 0.05 && luminance(dark.page) > 0, "dark page is dark gray, not black");
+  assert.equal(await popup.isVisible("#now-night"), true, "now marks Night");
+  assert.equal(await popup.isVisible("#now-day"), false);
+  await popup.focus("input[name=night]:checked");
+  await checkPopup("night-dark");
+
+  // Arrow keys move through a row: Night Dark -> Warm reaches Gmail live.
+  await popup.keyboard.press("ArrowLeft");
+  assert.equal(await selected("night"), "warm");
+  await palette("warm");
+  await popup.keyboard.press("ArrowRight");
+  await palette("dark");
+  await popup.keyboard.press("ArrowLeft");
+  await palette("warm");
+  // A label click: Day Off means e-ink only at night.
+  await popup.click("input[name=day][value=off] + span");
+  assert.equal(await selected("day"), "off");
+  await mac("light");
+  await unstyled();
+  await mac("dark");
+  await palette("warm");
+
+  // Master off: Gmail back to normal in both appearances, rows disabled.
+  await popup.click("label[for=enabled]");
+  await unstyled();
+  await mac("light");
+  await unstyled();
+  assert.equal(await popup.isDisabled("input[name=day][value=warm]"), true, "rows disabled while off");
   await gmail.screenshot({ path: path.join(shots, "off.png") });
+  await popup.locator("body").screenshot({ path: path.join(shots, "popup-off.png") });
+
+  // All three settings persist across reloads.
   await gmail.reload();
   await gmail.waitForLoadState();
   await new Promise(resolve => setTimeout(resolve, 300));
   assert.equal(await filter(), "none", "off survives reload");
-  await popup.screenshot({ path: path.join(shots, "popup.png") });
-  await popup.click("#enabled");
-  await gmail.waitForFunction(() => document.documentElement.hasAttribute("data-eink"));
+  await popup.reload();
+  await popup.waitForSelector("#enabled:not([disabled])");
+  assert.equal(await popup.getAttribute("#enabled", "aria-checked"), "false");
+  assert.equal(await selected("day"), "off");
+  assert.equal(await selected("night"), "warm");
+  assert.equal(await popup.isDisabled("input[name=night][value=dark]"), true);
+  await popup.focus("#enabled");
+  await popup.keyboard.press("Space");
+  await mac("dark");
+  await palette("warm");
+  await gmail.reload();
+  await palette("warm");
+  await mac("light");
+  await unstyled();
 
   await browser.close();
   proc.kill();
