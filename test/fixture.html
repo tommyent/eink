@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Inbox - Gmail fixture</title>
+<style>
+  /* Colours copied from Gmail's default light theme. */
+  body { margin: 0; font: 14px/1.4 "Google Sans", Roboto, Arial, sans-serif; color: #202124; background: #f6f8fc; }
+  header { display: flex; align-items: center; gap: 16px; height: 64px; padding: 0 16px; }
+  .logo { font-size: 22px; color: #5f6368; display: flex; align-items: center; gap: 8px; }
+  [role=search] input { width: 520px; height: 44px; border: 0; border-radius: 24px; padding: 0 20px; background: #eaf1fb; font: inherit; }
+  .layout { display: flex; }
+  nav { width: 240px; padding: 8px 0; }
+  .compose-btn { margin: 0 8px 16px; padding: 18px 24px; border: 0; border-radius: 16px; background: #c2e7ff; color: #001d35; font: 500 14px inherit; }
+  nav a { display: flex; gap: 12px; align-items: center; padding: 4px 24px; border-radius: 0 16px 16px 0; color: #202124; text-decoration: none; }
+  nav a[aria-current] { background: #d3e3fd; font-weight: 700; color: #001d35; }
+  .dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  main { flex: 1; background: #fff; border-radius: 16px; margin-right: 16px; overflow: hidden; }
+  [role=row] { display: flex; gap: 12px; align-items: center; padding: 0 16px; height: 40px; border-bottom: 1px solid #f1f3f4; background: #f2f6fc; }
+  [role=row].unread { background: #fff; font-weight: 700; }
+  [role=row][aria-selected=true] { background: #c2dbff; }
+  [role=row] img { width: 24px; height: 24px; border-radius: 50%; }
+  .from { width: 180px; }
+  .snippet { color: #5f6368; font-weight: 400; }
+  .chip { padding: 0 6px; border-radius: 4px; font-size: 12px; font-weight: 400; }
+  .star { color: #f4b400; }
+  article { padding: 20px 56px; border-top: 8px solid #f6f8fc; }
+  article h2 { font-weight: 400; font-size: 22px; margin: 0 0 16px; }
+  .meta { color: #5f6368; display: flex; gap: 12px; align-items: center; }
+  .meta img { width: 40px; height: 40px; border-radius: 50%; }
+  article a { color: #0b57d0; }
+  .photo { width: 320px; height: 140px; display: block; border-radius: 8px; }
+  [role=dialog] { position: fixed; right: 24px; bottom: 0; width: 500px; background: #fff; border-radius: 8px 8px 0 0; box-shadow: 0 8px 10px 1px rgba(0,0,0,.14), 0 3px 14px 2px rgba(0,0,0,.12); }
+  [role=dialog] .title { background: #f2f6fc; padding: 10px 16px; font-weight: 500; border-radius: 8px 8px 0 0; }
+  [role=dialog] input, [role=dialog] [contenteditable] { display: block; width: calc(100% - 32px); margin: 0 16px; border: 0; border-bottom: 1px solid #f1f3f4; padding: 8px 0; font: inherit; }
+  [role=dialog] [contenteditable] { height: 70px; }
+  [role=dialog] input:focus { outline: 2px solid #0b57d0; outline-offset: 2px; }
+  .send { margin: 12px 16px; padding: 9px 24px; border: 0; border-radius: 18px; background: #0b57d0; color: #fff; font: 500 14px inherit; }
+  /* Solid swatches of the colour pairs above, sampled by e2e.js for contrast. */
+  .swatches { display: flex; gap: 4px; padding: 8px 16px; }
+  .swatches div { width: 24px; height: 24px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><img alt="" width="32" height="24" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 24'%3E%3Cpath fill='%23ea4335' d='M0 2l16 12L32 2v22H0z'/%3E%3Cpath fill='%23fbbc04' d='M0 2l16 12V6z'/%3E%3C/svg%3E"> Gmail</div>
+  <div role="search"><input aria-label="Search mail" placeholder="Search mail"></div>
+</header>
+<div class="layout">
+  <nav aria-label="Labels">
+    <button class="compose-btn">Compose</button>
+    <a href="#" aria-current="page">Inbox <b style="margin-left:auto">3</b></a>
+    <a href="#">Starred</a>
+    <a href="#">Sent</a>
+    <a href="#"><span class="dot" style="background:#16a765"></span>Family</a>
+    <a href="#"><span class="dot" style="background:#4986e7"></span>Work</a>
+    <a href="#"><span class="dot" style="background:#f691b2"></span>Travel</a>
+  </nav>
+  <main>
+    <div role="grid" aria-label="Inbox">
+      <div role="row" class="unread"><span class="star">★</span><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'%3E%3Crect width='1' height='1' fill='%23e8710a'/%3E%3C/svg%3E"><span class="from">Ada Lovelace</span><span class="chip" style="background:#4986e7;color:#fff">Work</span><span>Engine notes <span class="snippet">— The analytical engine weaves algebraic patterns…</span></span></div>
+      <div role="row" class="unread" aria-selected="true"><span>☆</span><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'%3E%3Crect width='1' height='1' fill='%2316a765'/%3E%3C/svg%3E"><span class="from">Grace Hopper</span><span class="chip" style="background:#16a765;color:#fff">Family</span><span>Selected unread row <span class="snippet">— Nanoseconds and bugs</span></span></div>
+      <div role="row"><span>☆</span><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'%3E%3Crect width='1' height='1' fill='%239334e6'/%3E%3C/svg%3E"><span class="from">Katherine Johnson</span><span>Read row <span class="snippet">— Trajectory check for Tuesday</span></span></div>
+      <div role="row"><span>☆</span><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'%3E%3Crect width='1' height='1' fill='%23d93025'/%3E%3C/svg%3E"><span class="from">Alan Turing</span><span class="chip" style="background:#f691b2;color:#202124">Travel</span><span>Read row with label <span class="snippet">— Train times to Manchester</span></span></div>
+    </div>
+    <article>
+      <h2>Engine notes</h2>
+      <div class="meta"><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'%3E%3Crect width='1' height='1' fill='%23e8710a'/%3E%3C/svg%3E"><span><b style="color:#202124">Ada Lovelace</b> &lt;ada@example.com&gt; · 9:41 PM</span></div>
+      <p>The analytical engine weaves algebraic patterns just as the Jacquard loom weaves flowers and leaves. Body text should stay easy to read for a long time at night.</p>
+      <p>Details are on <a href="#">the project page</a>.</p>
+      <img class="photo" alt="Photo" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 140'%3E%3ClinearGradient id='g'%3E%3Cstop offset='0' stop-color='%23ff6d00'/%3E%3Cstop offset='1' stop-color='%231e88e5'/%3E%3C/linearGradient%3E%3Crect width='320' height='140' fill='url(%23g)'/%3E%3Ccircle cx='80' cy='60' r='30' fill='%23fff59d'/%3E%3C/svg%3E">
+      <div class="swatches" aria-hidden="true">
+        <div id="sw-page" style="background:#fff"></div>
+        <div id="sw-text" style="background:#202124"></div>
+        <div id="sw-secondary" style="background:#5f6368"></div>
+        <div id="sw-link" style="background:#0b57d0"></div>
+        <div id="sw-read" style="background:#f2f6fc"></div>
+        <div id="sw-selected" style="background:#c2dbff"></div>
+      </div>
+    </article>
+  </main>
+</div>
+<div role="dialog" aria-label="New Message">
+  <div class="title">New Message</div>
+  <input aria-label="To" value="grace@example.com">
+  <input id="subject" aria-label="Subject" placeholder="Subject">
+  <div contenteditable="true" aria-label="Message Body">Draft text in compose.</div>
+  <button class="send">Send</button>
+</div>
+</body>
+</html>
