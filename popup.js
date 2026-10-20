@@ -1,27 +1,23 @@
-const defaults = { enabled: true, day: "warm", night: "dark" };
+const defaults = { mode: "auto", palette: "dark" };
 const settings = { ...defaults };
 const night = matchMedia("(prefers-color-scheme: dark)");
-const master = document.querySelector("#enabled");
-const times = document.querySelector("#times");
+const controls = document.querySelector("#controls");
+const paletteRow = document.querySelector("#palette-row");
 const radios = document.querySelectorAll("input[type=radio]");
 const caption = document.querySelector("#caption");
 const status = document.querySelector("#status");
-const names = { warm: "Warm paper", dark: "Dark e-ink", off: "Off, Gmail as usual" };
+const names = { warm: "Warm paper", dark: "Dark e-ink" };
 let loaded = false;
 
 function render() {
-  const now = night.matches ? "night" : "day";
-  const palette = settings.enabled ? settings[now] : "off";
-  master.setAttribute("aria-checked", String(settings.enabled));
-  master.disabled = !loaded;
-  times.disabled = !loaded || !settings.enabled;
+  const active = settings.mode === "on" || (settings.mode === "auto" && night.matches);
+  controls.disabled = !loaded;
+  paletteRow.disabled = settings.mode === "off";
   for (const radio of radios) radio.checked = settings[radio.name] === radio.value;
-  document.querySelector("#now-day").hidden = now !== "day";
-  document.querySelector("#now-night").hidden = now !== "night";
-  // The panel wears the palette Gmail has now; when that is off it follows the Mac.
-  document.documentElement.dataset.palette = palette === "off" ? (night.matches ? "dark" : "warm") : palette;
-  document.documentElement.toggleAttribute("data-off", palette === "off");
-  caption.textContent = settings.enabled ? `Now: ${now === "day" ? "Day" : "Night"} · ${names[palette]}` : "E-ink is off";
+  document.documentElement.dataset.palette = settings.palette;
+  document.documentElement.toggleAttribute("data-off", !active);
+  const when = settings.mode === "auto" ? (night.matches ? "Night (Auto)" : "Day (Auto)") : settings.mode === "on" ? "On" : "Off";
+  caption.textContent = `Now: ${when} · ${active ? names[settings.palette] : "Gmail as usual"}`;
 }
 
 async function save(key, value) {
@@ -40,16 +36,17 @@ async function save(key, value) {
 
 chrome.storage.sync.get(Object.keys(defaults)).then(values => {
   for (const key in defaults) if (values[key] !== undefined) settings[key] = values[key];
-  settings.enabled = settings.enabled !== false;
   loaded = true;
   render();
 }, () => {
   status.textContent = "Could not load the settings.";
 });
+// Set by content.js on the last Gmail page it checked.
+chrome.storage.local.get("gmailDark").then(({ gmailDark }) => {
+  document.querySelector("#theme-note").hidden = !gmailDark;
+}, () => {});
 
 render();
-// A <button> already toggles on click, Space and Enter, and its <label for> forwards clicks;
-// native radios give each row arrow-key selection and clickable labels.
-master.addEventListener("click", () => save("enabled", !settings.enabled));
-times.addEventListener("change", event => save(event.target.name, event.target.value));
+// Native radios give each row arrow-key selection and clickable labels.
+controls.addEventListener("change", event => save(event.target.name, event.target.value));
 night.addEventListener("change", render);

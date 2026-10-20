@@ -36,7 +36,20 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${fs.readFileSync(portFile, "utf8").split("\n")[0]}`);
   const { id } = await (await browser.newBrowserCDPSession()).send("Extensions.loadUnpacked", { path: root });
   const context = browser.contexts()[0];
-  await context.route("https://mail.google.com/**", route => route.fulfill({ path: path.join(__dirname, "fixture.html") }));
+  // /u/1/ serves the fixture recoloured like Gmail's own dark theme (approximate Material 3 dark colours).
+  const fixture = fs.readFileSync(path.join(__dirname, "fixture.html"), "utf8");
+  const darkTheme = `<style>
+    body { background: #111; color: #e3e3e3; } main, [role=dialog] { background: #1f1f1f; }
+    [role=row] { background: #1f1f1f; border-color: #333; } [role=row].unread { background: #2d2d2d; }
+    [role=row][aria-selected=true] { background: #3c4a5e; } .snippet, .meta, .logo { color: #c4c7c5; } article a { color: #a8c7fa; }
+    nav a, article b { color: #e3e3e3 !important; } nav a[aria-current] { background: #3c4a5e; } .compose-btn { background: #3c4a5e; color: #e3e3e3; }
+    article { border-color: #111; } [role=dialog] input, [role=dialog] [contenteditable] { background: #1f1f1f; color: #e3e3e3; border-color: #333; }
+    .send { background: #a8c7fa; color: #062e6f; } [role=dialog] .title, [role=search] input { background: #2d2d2d; color: #e3e3e3; }
+    #sw-page { background: #1f1f1f !important; } #sw-text { background: #e3e3e3 !important; } #sw-secondary { background: #c4c7c5 !important; }
+    #sw-link { background: #a8c7fa !important; } #sw-read { background: #1f1f1f !important; } #sw-selected { background: #3c4a5e !important; }
+  </style></head>`;
+  await context.route("https://mail.google.com/**", route => route.fulfill({ contentType: "text/html",
+    body: route.request().url().includes("/u/1/") ? fixture.replace("</head>", darkTheme) : fixture }));
   const gmail = await context.newPage();
   await gmail.setViewportSize({ width: 1280, height: 800 });
   const decoder = await context.newPage();
@@ -60,10 +73,12 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   // The Mac's appearance, as seen by both the Gmail tab and the popup.
   const mac = async scheme => { await gmail.emulateMedia({ colorScheme: scheme }); await popup.emulateMedia({ colorScheme: scheme }); };
   const selected = name => popup.$eval(`input[name=${name}]:checked`, input => input.value);
+  const choose = (name, value) => popup.click(`input[name=${name}][value=${value}] + span`);
+  const caption = () => popup.textContent("#caption");
 
   // Gmail's text, link and row colours as rendered under the filter, checked for WCAG AA.
   const pairs = [["text", "page"], ["secondary", "page"], ["link", "page"], ["text", "read"], ["secondary", "read"], ["text", "selected"]];
-  async function checkGmail(name) {
+  async function checkGmail(name, look) {
     await gmail.screenshot({ path: path.join(shots, `${name}.png`) });
     const colours = {};
     for (const key of ["page", "text", "secondary", "link", "read", "selected"]) colours[key] = await sample(`#sw-${key}`);
@@ -74,8 +89,9 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
       assert.ok(ratio >= 4.5, `${name} ${fg} on ${bg} fails WCAG AA`);
     }
     // No accent colour: dark is neutral gray, warm only has the paper's own hue (r >= g >= b; Gmail blue had b > r).
-    for (const [r, g, b] of Object.values(colours)) assert.ok(name === "dark" ? Math.max(r, g, b) - Math.min(r, g, b) <= 6 : r >= g - 3 && g >= b - 3, `${name} swatch ${hex([r, g, b])} keeps colour`);
-    return colours;
+    for (const [r, g, b] of Object.values(colours)) assert.ok(look === "dark" ? Math.max(r, g, b) - Math.min(r, g, b) <= 6 : r >= g - 3 && g >= b - 3, `${name} swatch ${hex([r, g, b])} keeps colour`);
+    if (look === "dark") assert.ok(luminance(colours.page) < 0.05 && luminance(colours.page) > 0, `${name} page is dark gray, not black`);
+    else assert.ok(colours.page[0] > colours.page[2] + 15 && luminance(colours.page) > 0.6, `${name} page is warm paper`);
   }
 
   // Popup text and control outlines against its screen colour (AA 4.5 for text, 3 for controls and focus ring).
@@ -84,18 +100,15 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
     const css = await popup.evaluate(() => {
       const style = (selector, prop) => getComputedStyle(document.querySelector(selector))[prop];
       const screen = style("main", "backgroundColor");
+      const active = document.activeElement, ring = getComputedStyle(active.nextElementSibling);
       return [
         ["title", style("h1", "color"), screen, 4.5], ["caption", style("#caption", "color"), screen, 4.5],
-        ["hint", style(".hint", "color"), screen, 4.5], ["label", style("#enabled-label", "color"), screen, 4.5],
+        ["hint", style(".hint", "color"), screen, 4.5], ["legend", style("legend", "color"), screen, 4.5],
         ["segment", style(".segments input:not(:checked) + span", "color"), screen, 4.5],
         ["chosen segment", style(".segments input:checked + span", "color"), style(".segments input:checked + span", "backgroundColor"), 4.5],
-        ["segment outline", style(".segments", "borderTopColor"), screen, 3], ["switch", style("#enabled", "borderTopColor"), screen, 3],
-        // The ring sits on the switch, or on the segment span of a focused radio (drawn inside the span).
-        ["focus ring", ...(() => {
-          const active = document.activeElement, ring = active.matches("input") ? active.nextElementSibling : active;
-          const ringStyle = getComputedStyle(ring);
-          return [ringStyle.outlineStyle === "none" ? "rgb(0, 0, 0, 0)" : ringStyle.outlineColor, active.matches("input:checked") ? ringStyle.backgroundColor : screen];
-        })(), 3]
+        ["segment outline", style(".segments", "borderTopColor"), screen, 3],
+        // The focus ring is drawn inside the focused radio's segment.
+        ["focus ring", ring.outlineStyle === "none" ? "rgb(0, 0, 0, 0)" : ring.outlineColor, active.checked ? ring.backgroundColor : screen, 3]
       ];
     });
     const rgb = value => value.match(/[\d.]+/g).slice(0, 3).map(Number);
@@ -109,75 +122,93 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   const popup = await context.newPage();
   await popup.setViewportSize({ width: 296, height: 400 });
   await popup.goto(`chrome-extension://${id}/popup.html`);
-  await popup.waitForSelector("#enabled:not([disabled])");
-  assert.equal(await popup.getAttribute("#enabled", "aria-checked"), "true", "E-ink defaults on");
-  assert.equal(await selected("day"), "warm", "Day defaults to Warm");
-  assert.equal(await selected("night"), "dark", "Night defaults to Dark");
+  await popup.waitForSelector("#controls:not([disabled])");
+  assert.equal(await selected("mode"), "auto", "E-ink defaults to Auto");
+  assert.equal(await selected("palette"), "dark", "Palette defaults to Dark");
 
-  // Defaults, switching live with the Mac's appearance and no reload.
+  // Auto: plain Gmail by day, e-ink by night, switching live with no reload.
   await mac("light");
   await gmail.goto(inbox);
-  await palette("warm");
   await gmail.focus("#subject");
-  const warm = await checkGmail("warm");
-  assert.ok(warm.page[0] > warm.page[2] + 15, "warm page is warm paper");
-  assert.equal(await popup.isVisible("#now-day"), true, "now marks Day");
-  await popup.keyboard.press("Tab");
-  assert.equal(await popup.evaluate(() => document.activeElement.id), "enabled");
-  await checkPopup("day-warm");
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal(await filter(), "none", "Auto is plain by day");
+  assert.equal(await caption(), "Now: Day (Auto) · Gmail as usual");
+  await gmail.screenshot({ path: path.join(shots, "auto-day.png") });
   await mac("dark");
   await palette("dark");
-  const dark = await checkGmail("dark");
-  assert.ok(luminance(dark.page) < 0.05 && luminance(dark.page) > 0, "dark page is dark gray, not black");
-  assert.equal(await popup.isVisible("#now-night"), true, "now marks Night");
-  assert.equal(await popup.isVisible("#now-day"), false);
-  await popup.focus("input[name=night]:checked");
+  assert.equal(await caption(), "Now: Night (Auto) · Dark e-ink");
+  // Photos flip back; Gmail's UI images (wordmark, sprites) stay inverted with the page.
+  assert.deepEqual(await gmail.evaluate(() => ["https://ssl.gstatic.com/ui/v1/icons/mail/rfr/logo_gmail_lockup_default_1x_r7.png",
+    "https://mail.google.com/mail/images/cleardot.gif", "https://example.com/photo.jpg"].map(src => {
+    const img = document.body.appendChild(Object.assign(document.createElement("img"), { src }));
+    const value = getComputedStyle(img).filter; img.remove(); return value;
+  })), ["none", "none", "invert(1)"]);
+  await checkGmail("auto-night-dark", "dark");
+  await popup.focus("input[name=palette]:checked");
   await checkPopup("night-dark");
 
-  // Arrow keys move through a row: Night Dark -> Warm reaches Gmail live.
+  // Arrow keys move the palette: Dark -> Warm reaches Gmail live.
   await popup.keyboard.press("ArrowLeft");
-  assert.equal(await selected("night"), "warm");
+  assert.equal(await selected("palette"), "warm");
   await palette("warm");
+  await checkGmail("auto-night-warm", "warm");
+  await checkPopup("night-warm");
   await popup.keyboard.press("ArrowRight");
   await palette("dark");
   await popup.keyboard.press("ArrowLeft");
   await palette("warm");
-  // A label click: Day Off means e-ink only at night.
-  await popup.click("input[name=day][value=off] + span");
-  assert.equal(await selected("day"), "off");
+
+  // On: e-ink by day too. Label clicks for every mode.
+  await choose("mode", "on");
   await mac("light");
-  await unstyled();
-  await mac("dark");
+  await palette("warm");
+  assert.equal(await caption(), "Now: On · Warm paper");
+  await checkGmail("on-warm", "warm");
+  await choose("palette", "dark");
+  await palette("dark");
+  await checkGmail("on-dark", "dark");
+  await choose("palette", "warm");
   await palette("warm");
 
-  // Master off: Gmail back to normal in both appearances, rows disabled.
-  await popup.click("label[for=enabled]");
+  // Off: Gmail back to normal in both appearances, palette row disabled.
+  await choose("mode", "off");
   await unstyled();
-  await mac("light");
+  await mac("dark");
   await unstyled();
-  assert.equal(await popup.isDisabled("input[name=day][value=warm]"), true, "rows disabled while off");
+  assert.equal(await popup.isDisabled("input[name=palette][value=dark]"), true, "palette disabled while off");
+  assert.equal(await caption(), "Now: Off · Gmail as usual");
   await gmail.screenshot({ path: path.join(shots, "off.png") });
   await popup.locator("body").screenshot({ path: path.join(shots, "popup-off.png") });
 
-  // All three settings persist across reloads.
+  // Settings persist across reloads.
   await gmail.reload();
   await gmail.waitForLoadState();
   await new Promise(resolve => setTimeout(resolve, 300));
   assert.equal(await filter(), "none", "off survives reload");
   await popup.reload();
-  await popup.waitForSelector("#enabled:not([disabled])");
-  assert.equal(await popup.getAttribute("#enabled", "aria-checked"), "false");
-  assert.equal(await selected("day"), "off");
-  assert.equal(await selected("night"), "warm");
-  assert.equal(await popup.isDisabled("input[name=night][value=dark]"), true);
-  await popup.focus("#enabled");
-  await popup.keyboard.press("Space");
-  await mac("dark");
+  await popup.waitForSelector("#controls:not([disabled])");
+  assert.equal(await selected("mode"), "off");
+  assert.equal(await selected("palette"), "warm");
+  await popup.focus("input[name=mode]:checked");
+  await popup.keyboard.press("ArrowRight");
+  assert.equal(await selected("mode"), "auto");
   await palette("warm");
   await gmail.reload();
   await palette("warm");
-  await mac("light");
-  await unstyled();
+
+  // Gmail's own dark theme: detected, Dark only drops colour, Warm still gives paper, popup says so.
+  await gmail.goto(inbox.replace("/u/0/", "/u/1/"));
+  await gmail.waitForFunction(() => document.documentElement.hasAttribute("data-gmail-dark"));
+  await palette("warm");
+  assert.match(await filter(), /^invert\(1\)/);
+  await checkGmail("gmail-dark-theme-warm", "warm");
+  await choose("palette", "dark");
+  await palette("dark");
+  assert.equal(await filter(), "grayscale(1)");
+  await checkGmail("gmail-dark-theme-dark", "dark");
+  await popup.reload();
+  await popup.waitForSelector("#theme-note:not([hidden])");
+  await popup.locator("body").screenshot({ path: path.join(shots, "popup-gmail-dark-theme.png") });
 
   await browser.close();
   proc.kill();

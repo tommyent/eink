@@ -1,8 +1,8 @@
 /*
  * Whole-page filters instead of Gmail's obfuscated class names: grayscale keeps
  * Gmail's own light/dark contrast (unread bold, selected rows, focus rings) and
- * drops every accent colour. content.js sets data-eink to the palette the popup
- * chose for day (Mac light mode) or night (Mac dark mode).
+ * drops every accent colour. content.js sets data-eink to the palette while e-ink
+ * is active, and data-gmail-dark when Gmail's own dark theme is on.
  */
 
 /* Warm paper: white page becomes warm paper, text stays dark gray. */
@@ -15,15 +15,19 @@ html[data-eink="dark"] {
   filter: invert(0.85) grayscale(1);
 }
 
-/* Invert photos and avatars back so they read normally (slightly dimmed by the outer filter).
-   Gmail draws many icons as sprites on a transparent cleardot.gif <img>; those stay inverted. */
-html[data-eink="dark"] img:not([src*="cleardot"]),
-html[data-eink="dark"] video,
-html[data-eink="dark"] picture,
-html[data-eink="dark"] canvas {
-  filter: invert(1);
+/* Gmail's dark theme is already dark: Dark only drops colour, Warm inverts it to paper first. */
+html[data-eink="dark"][data-gmail-dark] {
+  filter: grayscale(1);
 }
 
-html[data-eink="dark"] picture img {
-  filter: none;
+html[data-eink="warm"][data-gmail-dark] {
+  filter: invert(1) brightness(1.12) grayscale(1) brightness(0.85) sepia(0.45) brightness(0.97);
+}
+
+/* Invert photos and avatars back wherever the page is inverted, so they read normally.
+   Gmail's UI images (cleardot.gif sprites, the wordmark and icons under /icons/mail/) stay inverted with the page,
+   and an <img> inside an inverted <picture> must not flip back again. */
+html[data-eink="dark"]:not([data-gmail-dark]) :is(img:not([src*="cleardot"], [src*="/icons/mail/"], picture img), video, picture, canvas),
+html[data-eink="warm"][data-gmail-dark] :is(img:not([src*="cleardot"], [src*="/icons/mail/"], picture img), video, picture, canvas) {
+  filter: invert(1);
 }
