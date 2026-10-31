@@ -3,8 +3,8 @@
  * light/dark contrast (bold unread rows, selected rows, focus rings) and drops every accent
  * colour. content.js sets data-eink to the palette on the top page while e-ink is active,
  * data-site-dark when the site is dark anyway, and data-eink-frame on frames inside an
- * inverted page. --eink-page is the page's filter and --eink-photo what photos end up as
- * under it; fullscreen content uses them too.
+ * inverted page. --eink-page is the page's filter and --eink-photo what photos and video end
+ * up as under it, so fullscreen content, which uses them, matches the page.
  */
 
 /* Warm paper: white page becomes warm paper, text stays dark gray. */
@@ -22,13 +22,16 @@ html[data-eink="dark"] {
   filter: var(--eink-page);
 }
 
-/* A site that is dark anyway: Dark only drops colour, Warm inverts it to paper first. */
+/* A site that is dark anyway: Dark only drops colour, Warm inverts it to paper first. Photos
+   aren't flipped back under Dark, and under Warm the flip-back cancels the page's inversion. */
 html[data-eink="dark"][data-site-dark] {
   --eink-page: grayscale(1);
+  --eink-photo: grayscale(1);
 }
 
 html[data-eink="warm"][data-site-dark] {
   --eink-page: invert(1) brightness(1.12) grayscale(1) brightness(0.85) sepia(0.45) brightness(0.97);
+  --eink-photo: brightness(1.12) grayscale(1) brightness(0.85) sepia(0.45) brightness(0.97);
 }
 
 /* A page with no background of its own shows Chrome's white canvas, which the root filter doesn't reach. */

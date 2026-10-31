@@ -244,7 +244,10 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   // Every other site: its light design first, then the same filters as Gmail. Still Auto and Dark,
   // with the Mac in dark mode.
   const svg = fill => `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200"><rect width="300" height="200" fill="${fill}"/></svg>`;
-  const images = { "/light.svg": svg("#ffffff"), "/dark.svg": svg("#000000"), "/photo.svg": svg("#f0c040") };
+  // The photo is a black-to-white ramp with a #f0c040 band across the middle.
+  const photo = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200"><defs><linearGradient id="g"><stop offset="0" stop-color="#000"/>`
+    + `<stop offset="1" stop-color="#fff"/></linearGradient></defs><rect width="300" height="200" fill="url(#g)"/><rect y="80" width="300" height="40" fill="#f0c040"/></svg>`;
+  const images = { "/light.svg": svg("#ffffff"), "/dark.svg": svg("#000000"), "/photo.svg": photo };
   const pages = ["/force.html", "/saved-dark.html", "/plain.html", "/fullscreen.html"];
   await context.route("https://sites.test/**", route => {
     const { pathname } = new URL(route.request().url());
@@ -319,11 +322,25 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   await site.screenshot({ path: path.join(shots, "sites-plain-dark.png") });
 
   // Fullscreen content is drawn outside the page filter. Every way a page goes fullscreen must still
-  // be black and white in both palettes: gray under Dark, warm gray under Warm. The photo is
-  // #f0c040, so in colour it is yellow and as a negative it is blue. Afterwards the page looks as before.
+  // be black and white, gray under Dark and warm gray under Warm, on a light page and on one that is
+  // dark anyway, and a fullscreen player must keep the tones the same photo has in the page. In
+  // colour the photo's band is yellow, and as a negative blue. Afterwards the page looks as before.
   await context.route("https://player.test/**", route => new URL(route.request().url()).pathname === "/photo.svg"
     ? route.fulfill({ contentType: "image/svg+xml", body: images["/photo.svg"] })
     : route.fulfill({ contentType: "text/html", body: fs.readFileSync(path.join(__dirname, "embed.html"), "utf8") }));
+  // Rendered colours at several points of one screenshot of the site page.
+  async function levels(points) {
+    const png = (await site.screenshot()).toString("base64");
+    return decoder.evaluate(async ({ src, points }) => {
+      const img = new Image(); img.src = "data:image/png;base64," + src; await img.decode();
+      const canvas = new OffscreenCanvas(img.width, img.height), ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      return points.map(([x, y]) => [...ctx.getImageData(Math.round(x), Math.round(y), 1, 1).data.slice(0, 3)]);
+    }, { src: png, points });
+  }
+  const ramp = [0.05, 0.25, 0.5, 0.75, 0.95];
+  const pageFilters = { dark: "invert(0.85) grayscale(1)", warm: "grayscale(1) brightness(0.85) sepia(0.45) brightness(0.97)",
+    "dark on a dark page": "grayscale(1)", "warm on a dark page": "invert(1) brightness(1.12) grayscale(1) brightness(0.85) sepia(0.45) brightness(0.97)" };
   const blackAndWhite = (look, [r, g, b]) => look === "dark"
     ? Math.max(r, g, b) - Math.min(r, g, b) <= 6 && r > 130
     : r >= g - 3 && g >= b - 3 && r - b <= 50 && r > 120;
@@ -336,27 +353,39 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
     ["embed", "embed-own-player", "an embedded player making its own player fullscreen", () => site.frameLocator("#embed").locator("#inner").click()],
     ["root", "whole-page", "the whole page (as YouTube does it), where the page filter stays", () => site.click("#go-root")]
   ];
-  for (const look of ["dark", "warm"]) {
+  for (const darkPage of [false, true]) for (const look of ["dark", "warm"]) {
+    const where = look + (darkPage ? " on a dark page" : "");
     await choose("palette", look);
-    await site.goto("https://sites.test/fullscreen.html");
+    await site.goto(`https://sites.test/fullscreen.html${darkPage ? "?dark" : ""}`);
     await siteEink(look);
+    await site.waitForFunction(dark => document.documentElement.hasAttribute("data-site-dark") === dark, darkPage);
     const page = await pixel(site, 1270, 790);
+    // Points along the ramp, above the band, in the page's photo.
+    const box = await site.locator("#stage img").boundingBox();
+    const inPage = await levels(ramp.map(f => [box.x + f * box.width, box.y + 0.25 * box.height]));
     for (const [id, shot, name, enter] of ways) {
       await enter();
       await site.waitForFunction(id => id === "root" ? document.fullscreenElement === document.documentElement : document.fullscreenElement?.id === id, id);
       await new Promise(resolve => setTimeout(resolve, 300));
       // The fullscreen content fills the screen; with the whole page fullscreen, look at its photo where it is.
-      const box = id === "root" ? await site.locator("#stage img").boundingBox() : { x: 0, y: 0, width: 1280, height: 800 };
-      const seen = await pixel(site, Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2));
-      if (id === "root") assert.equal(await siteFilter(), look === "dark" ? "invert(0.85) grayscale(1)" : "grayscale(1) brightness(0.85) sepia(0.45) brightness(0.97)");
-      assert.ok(blackAndWhite(look, seen), `${name} in fullscreen under ${look} is ${hex(seen)}, not black and white`);
-      await site.screenshot({ path: path.join(shots, `fullscreen-${shot}-${look}.png`) });
+      const seen = await pixel(site, ...(id === "root" ? [Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2)] : [640, 400]));
+      if (id === "root") assert.equal(await siteFilter(), pageFilters[where]);
+      assert.ok(blackAndWhite(look, seen), `${name} in fullscreen under ${where} is ${hex(seen)}, not black and white`);
+      if (id === "stage") {
+        // The player shows the photo with object-fit: cover, across the full width and cropped top and bottom.
+        const scale = Math.max(1280 / 300, 800 / 200), top = (800 - 200 * scale) / 2;
+        const full = await levels(ramp.map(f => [f * 1280, top + 0.25 * 200 * scale]));
+        const gap = Math.max(...inPage.flatMap((colour, i) => colour.map((v, k) => Math.abs(v - full[i][k]))));
+        assert.ok(gap <= 6, `fullscreen under ${where} is ${gap} levels off the page's tones: ${full.map(hex)} against ${inPage.map(hex)}`);
+      }
+      await site.screenshot({ path: path.join(shots, `fullscreen-${shot}-${look}${darkPage ? "-dark-page" : ""}.png`) });
       await site.evaluate(() => document.exitFullscreen());
       await site.waitForFunction(() => !document.fullscreenElement);
     }
     await new Promise(resolve => setTimeout(resolve, 300));
-    assert.deepEqual(await pixel(site, 1270, 790), page, `the page under ${look} looks as before after fullscreen`);
-    assert.equal(await site.evaluate(() => getComputedStyle(document.querySelector("#stage img")).filter), look === "dark" ? "invert(1)" : "none");
+    assert.deepEqual(await pixel(site, 1270, 790), page, `the page under ${where} looks as before after fullscreen`);
+    // Photos flip back wherever the page is inverted: Dark on a light page, Warm on a dark one.
+    assert.equal(await site.evaluate(() => getComputedStyle(document.querySelector("#stage img")).filter), (look === "dark") !== darkPage ? "invert(1)" : "none");
   }
   assert.ok(await lightRegistered(), "light.js stays registered in Auto");
 
