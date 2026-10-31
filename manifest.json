@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "E-ink",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Grayscale, low-glare e-ink look for every site that follows the Mac's light or dark appearance.",
   "permissions": ["storage", "scripting"],
   "host_permissions": ["<all_urls>"],
