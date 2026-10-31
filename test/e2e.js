@@ -381,6 +381,8 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
       await site.screenshot({ path: path.join(shots, `fullscreen-${shot}-${look}${darkPage ? "-dark-page" : ""}.png`) });
       await site.evaluate(() => document.exitFullscreen());
       await site.waitForFunction(() => !document.fullscreenElement);
+      // Let Chrome finish leaving fullscreen: a request made straight away was sometimes never answered.
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
     await new Promise(resolve => setTimeout(resolve, 300));
     assert.deepEqual(await pixel(site, 1270, 790), page, `the page under ${where} looks as before after fullscreen`);
