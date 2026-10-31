@@ -27,37 +27,84 @@ const lightPage = ["rgba(0, 0, 0, 0)", "rgb(255, 255, 255)"];
 
 // backgrounds: colours from the element under every sampled point up to <html>; pageAt(x, y) for
 // a page that differs by place. frame: run as a frame inside a page of https://example.com.
-// scheme: the page's <meta name="color-scheme">; classes: on <body>.
+// scheme: the page's <meta name="color-scheme">; classes: on <body>. links: the page's stylesheet
+// links; fetched: what the extension hands back for a stylesheet light.js can't read.
 function content({ night = false, backgrounds = lightPage, pageAt, frame = false, contentType = "text/html", scheme,
-  classes = [], ...options } = {}) {
-  const attributes = {}, events = {}, messages = [], filteredReads = [];
+  classes = [], links = [], fetched = "", ...options } = {}) {
+  const attributes = {}, events = {}, messages = [], filteredReads = [], dispatched = [], sent = [];
   const chromeStorage = storage(options), mac = appearance(night);
   const sandbox = {
     matchMedia: mac.matchMedia, innerWidth: 1000, innerHeight: 800, URL,
+    CustomEvent: class { constructor(type, { detail }) { this.type = type; this.detail = detail; } },
     getComputedStyle: el => { filteredReads.push("data-eink" in attributes); return { backgroundColor: el.backgroundColor }; },
     addEventListener(name, handler) { events[name] = handler; },
     setTimeout() {},
     location: frame ? { hostname: "widget.example", ancestorOrigins: ["https://example.com"] } : { hostname: "example.com", ancestorOrigins: [] },
     document: { hidden: false, contentType, addEventListener(name, handler) { events[name] = handler; },
+      dispatchEvent(event) { dispatched.push(event); },
       elementFromPoint: (x, y) => pageAt ? pageAt(x, y) : chain(backgrounds),
       querySelector: selector => selector.startsWith("meta") && scheme ? { content: scheme } : null,
+      querySelectorAll: () => links,
       body: { classList: { contains: name => classes.includes(name) } },
       documentElement: {
         classList: { contains: () => false }, getAttribute: name => attributes[name] ?? null,
         setAttribute(name, value) { attributes[name] = value; }, removeAttribute(name) { delete attributes[name]; },
         toggleAttribute(name, on) { if (on) attributes[name] = ""; else delete attributes[name]; }
       } },
-    chrome: { storage: chromeStorage, runtime: { onMessage: { addListener(listener) { messages.push(listener); } } } }
+    chrome: { storage: chromeStorage, runtime: {
+      onMessage: { addListener(listener) { messages.push(listener); } },
+      sendMessage: async message => { sent.push(message); return fetched; } } }
   };
   sandbox.window = sandbox;
   sandbox.window.top = frame ? {} : sandbox;
   vm.runInNewContext(fs.readFileSync(`${__dirname}/content.js`, "utf8"), sandbox);
   return { palette: () => attributes["data-eink"] ?? "off", siteDark: () => "data-site-dark" in attributes,
-    flipsBack: () => "data-eink-frame" in attributes, filteredReads, answers: messages.length,
+    flipsBack: () => "data-eink-frame" in attributes, filteredReads, answers: messages.length, sent,
     ping: () => new Promise(resolve => messages[0]("eink-ping", {}, resolve)),
+    // What light.js gets back when it asks for a copy of url.
+    relay: async url => { events["eink-light-fetch"]({ detail: JSON.stringify({ id: 1, url }) }); await settled(); return JSON.parse(dispatched.at(-1).detail).text; },
     localWrites: chromeStorage.localWrites, setNight: mac.setNight, ready: () => events.DOMContentLoaded(), load: () => events.load(),
     change: (changes, area = "sync") => chromeStorage.listeners.forEach(listener => listener(changes, area)) };
 }
+
+// Runs light.js against fake page APIs. sheets: document.styleSheets.
+function light({ sheets = [] } = {}) {
+  const queries = [], events = [], listeners = {}, observers = [], inserted = [];
+  class CSSStyleSheet { insertRule(text) { return text; } replace(text) { return text; } replaceSync(text) { return text; } }
+  class CSSGroupingRule { insertRule(text) { return text; } }
+  class HTMLLinkElement { constructor(href) { this.href = href; this.sheet = { disabled: false }; } after(el) { inserted.push(el); } }
+  const sandbox = {
+    window: { matchMedia: query => { queries.push(query); return { media: query }; } },
+    CSSStyleSheet, CSSGroupingRule, HTMLLinkElement, URL, Element: class { attachShadow() { return {}; } },
+    MutationObserver: class { constructor(callback) { this.callback = callback; this.observed = []; observers.push(this); } observe(target) { this.observed.push(target); } },
+    CustomEvent: class { constructor(type, { detail }) { this.type = type; this.detail = detail; } },
+    document: { styleSheets: sheets, addEventListener(name, listener) { listeners[name] = listener; }, dispatchEvent(event) { events.push(event); },
+      createElement: () => ({}) },
+    addEventListener(name, listener) { listeners[name] = listener; }
+  };
+  vm.runInNewContext(fs.readFileSync(`${__dirname}/light.js`, "utf8"), sandbox);
+  return { sandbox, queries, events, listeners, inserted, matchMedia: query => sandbox.window.matchMedia(query),
+    added: node => observers.find(observer => observer.observed.includes(sandbox.document)).callback([{ type: "childList", addedNodes: [node] }]) };
+}
+
+// Runs bg.js with fake Chrome APIs. stored: sync storage; response: what fetch returns.
+function background({ stored = {}, response } = {}) {
+  const calls = [], listeners = {}, fetches = [];
+  const chrome = {
+    storage: { sync: { get: async () => stored }, local: { remove: async () => {} }, onChanged: { addListener(listener) { listeners.changed = listener; } } },
+    scripting: {
+      unregisterContentScripts: async options => { calls.push(["unregister", JSON.parse(JSON.stringify(options))]); },
+      registerContentScripts: async scripts => { calls.push(["register", JSON.parse(JSON.stringify(scripts))]); } },
+    runtime: { onInstalled: { addListener(listener) { listeners.installed = listener; } }, onStartup: { addListener(listener) { listeners.startup = listener; } },
+      onMessage: { addListener(listener) { listeners.message = listener; } } }
+  };
+  const fetch = async (url, init) => { fetches.push([url, JSON.parse(JSON.stringify(init))]); return response; };
+  vm.runInNewContext(fs.readFileSync(`${__dirname}/bg.js`, "utf8"), { chrome, fetch, console });
+  return { calls, listeners, fetches,
+    ask: (fetchCSS, sender = { tab: { id: 1 } }) => new Promise(resolve => { if (listeners.message({ fetchCSS }, sender, resolve) !== true) resolve(null); }) };
+}
+const css = (body, type = "text/css; charset=utf-8", extra = {}) =>
+  ({ ok: true, headers: { get: name => ({ "content-type": type, ...extra })[name] ?? null }, text: async () => body });
 
 // page: what the page in the active tab answers, or nothing where E-ink can't run.
 function popup({ night = false, page, ...options } = {}) {
@@ -265,4 +312,112 @@ test("popup stays disabled when the settings cannot be loaded", async () => {
   const s = popup({ loadFails: true }); await settled();
   assert.equal(s.ids["#controls"].disabled, true);
   assert.match(s.ids["#status"].textContent, /Could not load/);
+});
+
+test("light.js makes every form of the colour-scheme query read light, and rewriting twice changes nothing", () => {
+  const s = light();
+  for (const [query, expected] of [
+    ["(prefers-color-scheme: dark)", "(width < 0px)"],
+    ["(prefers-color-scheme: light)", "(width >= 0px)"],
+    ["( Prefers-Color-Scheme :DARK )", "(width < 0px)"],
+    ["screen and (prefers-color-scheme: dark)", "screen and (width < 0px)"],
+    ["not screen and (prefers-color-scheme: light)", "not screen and (width >= 0px)"],
+    ["not (prefers-color-scheme: dark)", "not (width < 0px)"],
+    ["(min-width: 600px) or (prefers-color-scheme: dark)", "(min-width: 600px) or (width < 0px)"],
+    ["(prefers-color-scheme: dark), print", "(width < 0px), print"],
+    ["(min-width: 600px)", "(min-width: 600px)"]
+  ]) {
+    s.matchMedia(query); assert.equal(s.queries.at(-1), expected, query);
+    s.matchMedia(expected); assert.equal(s.queries.at(-1), expected, `${query} again`);
+  }
+});
+
+test("light.js rewrites the dark-mode rules of readable stylesheets, nested and imported, once", () => {
+  const imported = { cssRules: [{ media: { mediaText: "(prefers-color-scheme: dark)" }, cssRules: [] }] };
+  const sheet = { cssRules: [
+    { media: { mediaText: "(prefers-color-scheme: dark)" }, cssRules: [] },
+    { cssRules: [{ media: { mediaText: "print and (prefers-color-scheme: light)" }, cssRules: [] }] },
+    { media: { mediaText: "all" }, styleSheet: imported },
+    { selectorText: "body" }
+  ] };
+  const s = light({ sheets: [sheet] });
+  s.listeners.DOMContentLoaded();
+  assert.equal(sheet.cssRules[0].media.mediaText, "(width < 0px)");
+  assert.equal(sheet.cssRules[1].cssRules[0].media.mediaText, "print and (width >= 0px)");
+  assert.equal(imported.cssRules[0].media.mediaText, "(width < 0px)");
+  sheet.cssRules[0].media.mediaText = "(prefers-color-scheme: dark)";
+  s.listeners.load();
+  assert.equal(sheet.cssRules[0].media.mediaText, "(prefers-color-scheme: dark)", "a sheet is walked once; later rules come through the hooks");
+});
+
+test("light.js rewrites rules that scripts add later, and media attributes as they arrive", () => {
+  const s = light();
+  const sheet = new s.sandbox.CSSStyleSheet();
+  assert.equal(sheet.insertRule("@media (prefers-color-scheme: dark) { a { color: red } }", 0), "@media (width < 0px) { a { color: red } }");
+  assert.equal(sheet.replaceSync("@media (prefers-color-scheme: light) { b {} }"), "@media (width >= 0px) { b {} }");
+  assert.equal(new s.sandbox.CSSGroupingRule().insertRule("a { color: red }"), "a { color: red }");
+  const attributes = { media: "(prefers-color-scheme: dark)" };
+  s.added({ nodeType: 1, localName: "source", matches: () => true, getAttribute: name => attributes[name], setAttribute: (name, value) => { attributes[name] = value; } });
+  assert.equal(attributes.media, "(width < 0px)");
+});
+
+test("light.js replaces a stylesheet it can't read with a rewritten copy, resolving its URLs", () => {
+  const s = light();
+  const link = new s.sandbox.HTMLLinkElement("https://cdn.example/css/site.css");
+  s.sandbox.document.styleSheets.push({ ownerNode: link, get cssRules() { throw new Error("SecurityError"); } });
+  s.listeners.DOMContentLoaded();
+  const { id, url } = JSON.parse(s.events[0].detail);
+  assert.equal(url, "https://cdn.example/css/site.css");
+  s.listeners["eink-light-css"]({ detail: JSON.stringify({ id: 99, text: "@media (prefers-color-scheme: dark) {}" }) });
+  assert.equal(s.inserted.length, 0, "an answer to nothing it asked is ignored");
+  s.listeners["eink-light-css"]({ detail: JSON.stringify({ id, text:
+    '@import "base.css"; @media (prefers-color-scheme: dark) { body { background: url(img/bg.png) } i { background: url("data:image/png;base64,AA") } }' }) });
+  assert.equal(s.inserted[0].textContent,
+    '@import "https://cdn.example/css/base.css"; @media (width < 0px) { body { background: url("https://cdn.example/css/img/bg.png") } i { background: url("data:image/png;base64,AA") } }');
+  assert.equal(link.sheet.disabled, true);
+});
+
+test("content.js relays only stylesheets the page links to and can't read, and only a few", async () => {
+  const blocked = { get cssRules() { throw new Error("SecurityError"); } };
+  const s = content({ fetched: "@media (prefers-color-scheme: dark) {}", links: [
+    { href: "https://cdn.example/site.css", sheet: blocked }, { href: "https://example.com/own.css", sheet: { cssRules: [] } }] });
+  assert.equal(await s.relay("https://cdn.example/site.css"), "@media (prefers-color-scheme: dark) {}");
+  assert.equal(await s.relay("https://example.com/own.css"), "", "a sheet the page can read needs no copy");
+  assert.equal(await s.relay("http://192.168.1.1/status.css"), "", "a URL the page doesn't link as a stylesheet");
+  assert.deepEqual(s.sent.map(message => message.fetchCSS), ["https://cdn.example/site.css"]);
+  for (let i = 0; i < 25; i++) await s.relay("https://cdn.example/site.css");
+  assert.equal(s.sent.length, 20, "at most 20 a page");
+});
+
+test("bg.js registers light.js for every site except those switched off, and not while Off", async () => {
+  const s = background({ stored: { mode: "auto", off: ["example.com", "bad host/*", 42] } });
+  s.listeners.installed(); await settled();
+  assert.deepEqual(s.calls, [["unregister", { ids: ["light"] }], ["register", [{ id: "light", matches: ["<all_urls>"],
+    excludeMatches: ["*://example.com/*"], js: ["light.js"], css: ["light.css"], runAt: "document_start", allFrames: true,
+    matchOriginAsFallback: true, world: "MAIN" }]]]);
+  const off = background({ stored: { mode: "off" } });
+  off.listeners.startup(); await settled();
+  assert.deepEqual(off.calls, [["unregister", { ids: ["light"] }]]);
+  const live = background();
+  live.listeners.changed({ palette: { newValue: "warm" } }, "sync"); await settled();
+  assert.equal(live.calls.length, 0, "the palette doesn't change what is registered");
+  live.listeners.changed({ off: { newValue: [] } }, "sync"); await settled();
+  assert.equal(live.calls.at(-1)[0], "register");
+});
+
+test("bg.js fetches stylesheets without cookies and hands back only CSS with dark-mode rules", async () => {
+  const dark = "@media (prefers-color-scheme: dark) { body { background: #000 } }";
+  const ok = background({ response: css(dark) });
+  assert.equal(await ok.ask("https://cdn.example/site.css"), dark);
+  assert.deepEqual(ok.fetches, [["https://cdn.example/site.css", { credentials: "omit", referrerPolicy: "no-referrer" }]]);
+  assert.equal(await background({ response: css(dark, "application/json") }).ask("https://api.example/me"), "");
+  assert.equal(await background({ response: css(dark, "text/html") }).ask("https://mail.example/inbox"), "");
+  assert.equal(await background({ response: css("body { color: red }") }).ask("https://cdn.example/plain.css"), "", "nothing to rewrite");
+  assert.equal(await background({ response: css(dark, "text/css", { "content-length": "9000000" }) }).ask("https://cdn.example/huge.css"), "");
+  assert.equal(await background({ response: { ...css(dark), ok: false } }).ask("https://cdn.example/missing.css"), "");
+  const local = background({ response: css(dark) });
+  assert.equal(await local.ask("file:///Users/someone/notes.css"), "");
+  assert.equal(await local.ask("chrome-extension://abc/x.css"), "");
+  assert.equal(local.fetches.length, 0);
+  assert.equal(await background({ response: css(dark) }).ask("https://cdn.example/site.css", {}), null, "only pages' content scripts may ask");
 });

@@ -102,3 +102,17 @@ if (isTop) chrome.runtime.onMessage.addListener((message, sender, reply) => { if
 document.addEventListener("DOMContentLoaded", detectSiteTheme);
 addEventListener("load", () => { detectSiteTheme(); setTimeout(detectSiteTheme, 2500); });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) detectSiteTheme(); });
+
+// light.js runs in the page's own world and can't reach the extension, so it asks here for the
+// cross-origin stylesheets it can't read. Trust boundary: the page can send this event too, so
+// relay only a stylesheet this document links to and can't read, and only a few per page.
+let relayed = 0;
+const unreadable = sheet => { if (!sheet) return false; try { sheet.cssRules; return false; } catch { return true; } };
+document.addEventListener("eink-light-fetch", event => {
+  let id, url;
+  try { ({ id, url } = JSON.parse(event.detail)); } catch { return; }
+  const answer = text => document.dispatchEvent(new CustomEvent("eink-light-css", { detail: JSON.stringify({ id, text }) }));
+  const link = [...document.querySelectorAll("link[rel~=stylesheet i]")].find(link => link.href === url);
+  if (!link || !unreadable(link.sheet) || relayed++ >= 20) return answer("");
+  chrome.runtime.sendMessage({ fetchCSS: url }).then(text => answer(typeof text === "string" ? text : ""), () => answer(""));
+});

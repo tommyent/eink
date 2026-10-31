@@ -1,0 +1,5 @@
+/* Registered with light.js: light-dark() colours, form controls and scrollbars follow the light scheme too. */
+:root,
+:root * {
+  color-scheme: light !important;
+}

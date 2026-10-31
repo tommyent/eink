@@ -3,7 +3,11 @@
   "name": "E-ink",
   "version": "1.0.0",
   "description": "Grayscale, low-glare e-ink look for every site that follows the Mac's light or dark appearance.",
-  "permissions": ["storage"],
+  "permissions": ["storage", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "bg.js"
+  },
   "action": {
     "default_title": "E-ink",
     "default_popup": "popup.html"
