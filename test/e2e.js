@@ -198,7 +198,7 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
 
   // Gmail's own dark theme: detected, Dark only drops colour, Warm still gives paper, popup says so.
   await gmail.goto(inbox.replace("/u/0/", "/u/1/"));
-  await gmail.waitForFunction(() => document.documentElement.hasAttribute("data-gmail-dark"));
+  await gmail.waitForFunction(() => document.documentElement.hasAttribute("data-site-dark"));
   await palette("warm");
   assert.match(await filter(), /^invert\(1\)/);
   await checkGmail("gmail-dark-theme-warm", "warm");

@@ -23,11 +23,12 @@ function appearance(nightNow) {
 }
 
 // backgrounds: colours from the element under the page centre up to <html>.
-function content({ night = false, backgrounds = ["rgba(0, 0, 0, 0)", "rgb(255, 255, 255)"], ...options } = {}) {
+// frame: run as a frame inside another page rather than as the top page.
+function content({ night = false, backgrounds = ["rgba(0, 0, 0, 0)", "rgb(255, 255, 255)"], frame = false, ...options } = {}) {
   const attributes = {}, events = {};
   const chromeStorage = storage(options), mac = appearance(night);
   const chain = backgrounds.reduceRight((parentElement, backgroundColor) => ({ backgroundColor, parentElement }), null);
-  vm.runInNewContext(fs.readFileSync(`${__dirname}/content.js`, "utf8"), {
+  const sandbox = {
     matchMedia: mac.matchMedia, innerWidth: 1000, innerHeight: 800,
     getComputedStyle: el => ({ backgroundColor: el.backgroundColor }),
     addEventListener(name, handler) { events[name] = handler; },
@@ -38,8 +39,12 @@ function content({ night = false, backgrounds = ["rgba(0, 0, 0, 0)", "rgb(255, 2
         toggleAttribute(name, on) { if (on) attributes[name] = ""; else delete attributes[name]; }
       } },
     chrome: { storage: chromeStorage }
-  });
-  return { palette: () => attributes["data-eink"] ?? "off", gmailDark: () => "data-gmail-dark" in attributes,
+  };
+  sandbox.window = sandbox;
+  sandbox.window.top = frame ? {} : sandbox;
+  vm.runInNewContext(fs.readFileSync(`${__dirname}/content.js`, "utf8"), sandbox);
+  return { palette: () => attributes["data-eink"] ?? "off", siteDark: () => "data-site-dark" in attributes,
+    flipsBack: () => "data-eink-frame" in attributes,
     localWrites: chromeStorage.localWrites, setNight: mac.setNight, load: () => events.load(),
     change: (changes, area = "sync") => chromeStorage.listeners.forEach(listener => listener(changes, area)) };
 }
@@ -98,13 +103,23 @@ test("content script applies sync changes live and ignores other changes", async
   s.change({ mode: { oldValue: "off" } }); assert.equal(s.palette(), "off", "a removed key falls back to Auto, which is off by day");
 });
 
-test("content script detects Gmail's own dark theme and reports it", async () => {
+test("content script detects a site's own dark theme and reports it", async () => {
   const light = content(); light.load();
-  assert.equal(light.gmailDark(), false); assert.deepEqual(light.localWrites, [{ gmailDark: false }]);
+  assert.equal(light.siteDark(), false); assert.deepEqual(light.localWrites, [{ gmailDark: false }]);
   const dark = content({ backgrounds: ["rgba(0, 0, 0, 0)", "rgba(255, 255, 255, 0.1)", "rgb(31, 31, 31)", "rgb(255, 255, 255)"] }); dark.load();
-  assert.equal(dark.gmailDark(), true); assert.deepEqual(dark.localWrites, [{ gmailDark: true }]);
+  assert.equal(dark.siteDark(), true); assert.deepEqual(dark.localWrites, [{ gmailDark: true }]);
   const unknown = content({ backgrounds: ["rgba(0, 0, 0, 0)"] }); unknown.load();
-  assert.equal(unknown.gmailDark(), false); assert.deepEqual(unknown.localWrites, []);
+  assert.equal(unknown.siteDark(), false); assert.deepEqual(unknown.localWrites, []);
+});
+
+test("a frame never gets the page filter, and flips photos back only inside an inverted page", async () => {
+  const dark = content({ frame: true, night: true }); await settled();
+  assert.equal(dark.palette(), "off"); assert.equal(dark.flipsBack(), true);
+  dark.change({ palette: { newValue: "warm" } }); assert.equal(dark.flipsBack(), false, "Warm doesn't invert the page");
+  dark.change({ palette: { newValue: "dark" } }); assert.equal(dark.flipsBack(), true);
+  dark.setNight(false); assert.equal(dark.flipsBack(), false, "Auto by day: the page isn't filtered");
+  const frame = content({ frame: true, night: true, backgrounds: ["rgb(31, 31, 31)"] }); frame.load();
+  assert.equal(frame.siteDark(), false); assert.deepEqual(frame.localWrites, [], "only the top page checks the site's theme");
 });
 
 test("popup shows the defaults and the state right now", async () => {

@@ -1,8 +1,9 @@
 /*
- * Whole-page filters instead of Gmail's obfuscated class names: grayscale keeps
- * Gmail's own light/dark contrast (unread bold, selected rows, focus rings) and
- * drops every accent colour. content.js sets data-eink to the palette while e-ink
- * is active, and data-gmail-dark when Gmail's own dark theme is on.
+ * Whole-page filters instead of each site's class names: grayscale keeps the site's own
+ * light/dark contrast (bold unread rows, selected rows, focus rings) and drops every accent
+ * colour. content.js sets data-eink to the palette on the top page while e-ink is active,
+ * data-site-dark when the site is dark anyway, and data-eink-frame on frames inside an
+ * inverted page.
  */
 
 /* Warm paper: white page becomes warm paper, text stays dark gray. */
@@ -15,19 +16,32 @@ html[data-eink="dark"] {
   filter: invert(0.85) grayscale(1);
 }
 
-/* Gmail's dark theme is already dark: Dark only drops colour, Warm inverts it to paper first. */
-html[data-eink="dark"][data-gmail-dark] {
+/* A site that is dark anyway: Dark only drops colour, Warm inverts it to paper first. */
+html[data-eink="dark"][data-site-dark] {
   filter: grayscale(1);
 }
 
-html[data-eink="warm"][data-gmail-dark] {
+html[data-eink="warm"][data-site-dark] {
   filter: invert(1) brightness(1.12) grayscale(1) brightness(0.85) sepia(0.45) brightness(0.97);
 }
 
+/* A page with no background of its own shows Chrome's white canvas, which the root filter doesn't reach. */
+html[data-eink]:not([data-site-dark]) {
+  background-color: #fff !important;
+}
+
 /* Invert photos and avatars back wherever the page is inverted, so they read normally.
+   Frames get only this rule, because the top page's filter already covers them.
    Gmail's UI images (cleardot.gif sprites, the wordmark and icons under /icons/mail/) stay inverted with the page,
    and an <img> inside an inverted <picture> must not flip back again. */
-html[data-eink="dark"]:not([data-gmail-dark]) :is(img:not([src*="cleardot"], [src*="/icons/mail/"], picture img), video, picture, canvas),
-html[data-eink="warm"][data-gmail-dark] :is(img:not([src*="cleardot"], [src*="/icons/mail/"], picture img), video, picture, canvas) {
+html[data-eink="dark"]:not([data-site-dark]) :is(img:not([src*="cleardot"], [src*="/icons/mail/"], picture img), video, picture, canvas),
+html[data-eink="warm"][data-site-dark] :is(img:not([src*="cleardot"], [src*="/icons/mail/"], picture img), video, picture, canvas),
+html[data-eink-frame] :is(img:not([src*="cleardot"], [src*="/icons/mail/"], picture img), video, picture, canvas) {
   filter: invert(1);
+}
+
+/* Fullscreen content is drawn outside the root filter, so nothing in it may flip back (it would show as a negative). */
+html:is([data-eink], [data-eink-frame]) :fullscreen,
+html:is([data-eink], [data-eink-frame]) :fullscreen * {
+  filter: none !important;
 }

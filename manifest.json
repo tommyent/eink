@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "E-ink",
   "version": "1.0.0",
-  "description": "Grayscale, low-glare e-ink look for Gmail that follows the Mac's light or dark appearance.",
+  "description": "Grayscale, low-glare e-ink look for every site that follows the Mac's light or dark appearance.",
   "permissions": ["storage"],
   "action": {
     "default_title": "E-ink",
@@ -10,10 +10,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://mail.google.com/*"],
+      "matches": ["<all_urls>"],
       "css": ["eink.css"],
       "js": ["content.js"],
-      "run_at": "document_start"
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
     }
   ]
 }
