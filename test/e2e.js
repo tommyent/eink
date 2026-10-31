@@ -1,6 +1,7 @@
 // Loads the unpacked extension in headless Chrome, serves fixture.html at a
 // mail.google.com URL, drives the popup switches and checks screenshots,
 // contrast, live apply and persistence. Run: npm i --no-save playwright-core && node test/e2e.js
+// EXT=<folder> loads another copy of the extension instead of this one.
 const { chromium } = require("playwright-core");
 const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
@@ -8,7 +9,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const root = fs.realpathSync(path.join(__dirname, ".."));
+const root = fs.realpathSync(process.env.EXT || path.join(__dirname, ".."));
 const shots = path.join(__dirname, "screenshots");
 const chrome = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const inbox = "https://mail.google.com/mail/u/0/#inbox";
@@ -74,7 +75,11 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   const mac = async scheme => { await gmail.emulateMedia({ colorScheme: scheme }); await popup.emulateMedia({ colorScheme: scheme }); };
   const selected = name => popup.$eval(`input[name=${name}]:checked`, input => input.value);
   const choose = (name, value) => popup.click(`input[name=${name}][value=${value}] + span`);
-  const caption = () => popup.textContent("#caption");
+  // The popup redraws on its own change events, so give it a moment before comparing.
+  const captionIs = async text => {
+    await popup.waitForFunction(t => document.querySelector("#caption").textContent === t, text, { timeout: 5000 }).catch(() => {});
+    assert.equal(await popup.textContent("#caption"), text);
+  };
 
   // Gmail's text, link and row colours as rendered under the filter, checked for WCAG AA.
   const pairs = [["text", "page"], ["secondary", "page"], ["link", "page"], ["text", "read"], ["secondary", "read"], ["text", "selected"]];
@@ -121,7 +126,22 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
 
   const popup = await context.newPage();
   await popup.setViewportSize({ width: 296, height: 400 });
-  await popup.goto(`chrome-extension://${id}/popup.html`);
+  // The popup asks the active tab, but here it is a tab itself: point it at the newest tab whose
+  // page answers for the site named in the popup URL's hash, or with "blocked", that doesn't answer.
+  await popup.addInitScript(() => {
+    const query = chrome.tabs.query.bind(chrome.tabs);
+    chrome.tabs.query = async info => {
+      const target = location.hash.slice(1);
+      if (!info.active || !target) return query(info);
+      const self = await chrome.tabs.getCurrent();
+      const tabs = (await query({})).filter(tab => tab.id !== self.id);
+      const answers = await Promise.all(tabs.map(tab => chrome.tabs.sendMessage(tab.id, "eink-ping", { frameId: 0 }).catch(() => null)));
+      const index = answers.findLastIndex(answer => target === "blocked" ? !answer : answer?.site === target);
+      return index < 0 ? [] : [tabs[index]];
+    };
+  });
+  const aim = async site => { await popup.goto(`chrome-extension://${id}/popup.html#${site}`); await popup.reload(); };
+  await popup.goto(`chrome-extension://${id}/popup.html#mail.google.com`);
   await popup.waitForSelector("#controls:not([disabled])");
   assert.equal(await selected("mode"), "auto", "E-ink defaults to Auto");
   assert.equal(await selected("palette"), "dark", "Palette defaults to Dark");
@@ -132,11 +152,11 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   await gmail.focus("#subject");
   await new Promise(resolve => setTimeout(resolve, 300));
   assert.equal(await filter(), "none", "Auto is plain by day");
-  assert.equal(await caption(), "Now: Day (Auto) · Gmail as usual");
+  await captionIs("Now: Day (Auto) · Gmail as usual");
   await gmail.screenshot({ path: path.join(shots, "auto-day.png") });
   await mac("dark");
   await palette("dark");
-  assert.equal(await caption(), "Now: Night (Auto) · Dark e-ink");
+  await captionIs("Now: Night (Auto) · Dark e-ink");
   // Photos flip back; Gmail's UI images (wordmark, sprites) stay inverted with the page.
   assert.deepEqual(await gmail.evaluate(() => ["https://ssl.gstatic.com/ui/v1/icons/mail/rfr/logo_gmail_lockup_default_1x_r7.png",
     "https://mail.google.com/mail/images/cleardot.gif", "https://example.com/photo.jpg"].map(src => {
@@ -162,7 +182,7 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   await choose("mode", "on");
   await mac("light");
   await palette("warm");
-  assert.equal(await caption(), "Now: On · Warm paper");
+  await captionIs("Now: On · Warm paper");
   await checkGmail("on-warm", "warm");
   await choose("palette", "dark");
   await palette("dark");
@@ -176,7 +196,7 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   await mac("dark");
   await unstyled();
   assert.equal(await popup.isDisabled("input[name=palette][value=dark]"), true, "palette disabled while off");
-  assert.equal(await caption(), "Now: Off · Gmail as usual");
+  await captionIs("Now: Off · Gmail as usual");
   await gmail.screenshot({ path: path.join(shots, "off.png") });
   await popup.locator("body").screenshot({ path: path.join(shots, "popup-off.png") });
 

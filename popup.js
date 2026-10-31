@@ -41,10 +41,10 @@ chrome.storage.sync.get(Object.keys(defaults)).then(values => {
 }, () => {
   status.textContent = "Could not load the settings.";
 });
-// Set by content.js on the last Gmail page it checked.
-chrome.storage.local.get("gmailDark").then(({ gmailDark }) => {
-  document.querySelector("#theme-note").hidden = !gmailDark;
-}, () => {});
+// The page in this tab answers for its site. Pages where extensions can't run don't answer.
+chrome.tabs.query({ active: true, currentWindow: true })
+  .then(([tab]) => chrome.tabs.sendMessage(tab.id, "eink-ping", { frameId: 0 }))
+  .then(page => { document.querySelector("#theme-note").hidden = !page?.siteDark; }, () => {});
 
 render();
 // Native radios give each row arrow-key selection and clickable labels.
