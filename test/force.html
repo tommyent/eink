@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<title>Six ways a site picks dark mode</title>
+<script>
+  // Like next-themes: pick the theme before paint from matchMedia.
+  if (matchMedia("(prefers-color-scheme: dark)").matches) document.documentElement.classList.add("dark");
+</script>
+<link rel="stylesheet" href="https://cdn.test/force-x.css">
+<style>
+  body { margin: 0; padding: 16px; font: 16px system-ui; background: #fff; color: #111; display: grid; grid-template-columns: repeat(6, 150px); gap: 12px; }
+  body > div { height: 100px; border: 1px solid #888; }
+  #media { background: #fff; }
+  @media (prefers-color-scheme: dark) { body { background: #111; color: #eee; } #media { background: #000; } }
+  #jsclass { background: #fff; } .dark #jsclass { background: #000; }
+  #lightdark { background: light-dark(#fff, #000); }
+  #cssinjs { background: #fff; }
+  img { width: 150px; height: 100px; display: block; }
+</style>
+</head>
+<body>
+<div id="media">@media rule</div>
+<div id="xorigin">Cross-origin sheet</div>
+<div id="jsclass">Class from matchMedia</div>
+<div id="lightdark">light-dark()</div>
+<div id="cssinjs">insertRule</div>
+<div><picture><source srcset="dark.svg" media="(prefers-color-scheme: dark)"><img id="pic" src="light.svg" alt=""></picture></div>
+<script>
+  setTimeout(() => {
+    const sheet = document.head.appendChild(document.createElement("style")).sheet;
+    sheet.insertRule("@media (prefers-color-scheme: dark) { #cssinjs { background: #000 !important; } }");
+  }, 300);
+</script>
+</body>
+</html>

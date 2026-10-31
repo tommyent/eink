@@ -65,6 +65,16 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
       return [...ctx.getImageData(img.width >> 1, img.height >> 1, 1, 1).data.slice(0, 3)];
     }, png);
   }
+  // The rendered colour at one point of a page, from a real screenshot.
+  async function pixel(page, x, y) {
+    const png = (await page.screenshot()).toString("base64");
+    return decoder.evaluate(async ({ src, x, y }) => {
+      const img = new Image(); img.src = "data:image/png;base64," + src; await img.decode();
+      const canvas = new OffscreenCanvas(img.width, img.height), ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      return [...ctx.getImageData(x, y, 1, 1).data.slice(0, 3)];
+    }, { src: png, x, y });
+  }
   const filter = () => gmail.evaluate(() => getComputedStyle(document.documentElement).filter);
   const palette = value => gmail.waitForFunction(v => document.documentElement.getAttribute("data-eink") === v, value);
   const unstyled = async () => {
@@ -229,6 +239,95 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   await popup.reload();
   await popup.waitForSelector("#theme-note:not([hidden])");
   await popup.locator("body").screenshot({ path: path.join(shots, "popup-gmail-dark-theme.png") });
+
+  // Every other site: its light design first, then the same filters as Gmail. Still Auto and Dark,
+  // with the Mac in dark mode.
+  const svg = fill => `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200"><rect width="300" height="200" fill="${fill}"/></svg>`;
+  const images = { "/light.svg": svg("#ffffff"), "/dark.svg": svg("#000000"), "/photo.svg": svg("#f0c040") };
+  const pages = ["/force.html", "/saved-dark.html", "/plain.html", "/fullscreen.html"];
+  await context.route("https://sites.test/**", route => {
+    const { pathname } = new URL(route.request().url());
+    if (images[pathname]) return route.fulfill({ contentType: "image/svg+xml", body: images[pathname] });
+    if (pages.includes(pathname)) return route.fulfill({ contentType: "text/html", body: fs.readFileSync(path.join(__dirname, pathname), "utf8") });
+    return route.fulfill({ status: 404, body: "" });
+  });
+  // Another origin, with no CORS headers, so the page can't read this stylesheet's rules.
+  await context.route("https://cdn.test/**", route => route.fulfill({ contentType: "text/css", body: fs.readFileSync(path.join(__dirname, "force-x.css"), "utf8") }));
+  const lightRegistered = () => popup.evaluate(async () => (await chrome.scripting.getRegisteredContentScripts()).find(script => script.id === "light") ?? null);
+  await popup.waitForFunction(async () => (await chrome.scripting.getRegisteredContentScripts()).some(script => script.id === "light"));
+  const site = await context.newPage();
+  await site.setViewportSize({ width: 1280, height: 800 });
+  await site.emulateMedia({ colorScheme: "dark" });
+  const siteFilter = () => site.evaluate(() => getComputedStyle(document.documentElement).filter);
+  const siteEink = value => site.waitForFunction(v => document.documentElement.getAttribute("data-eink") === v, value);
+
+  // Six ways a site picks dark mode all give way to its light design, while Auto still sees the Mac's dark mode.
+  await site.goto("https://sites.test/force.html");
+  await siteEink("dark");
+  const boxes = ["media", "xorigin", "jsclass", "lightdark", "cssinjs"];
+  await site.waitForFunction(ids => ids.every(id => getComputedStyle(document.getElementById(id)).backgroundColor === "rgb(255, 255, 255)"),
+    boxes, { timeout: 5000 }).catch(() => {});
+  assert.deepEqual(await site.evaluate(ids => ({
+    pageSeesDark: matchMedia("(prefers-color-scheme: dark)").matches,
+    body: getComputedStyle(document.body).backgroundColor,
+    boxes: Object.fromEntries(ids.map(id => [id, getComputedStyle(document.getElementById(id)).backgroundColor])),
+    picture: document.getElementById("pic").currentSrc.split("/").pop()
+  }), boxes), { pageSeesDark: false, body: "rgb(255, 255, 255)", boxes: Object.fromEntries(boxes.map(id => [id, "rgb(255, 255, 255)"])), picture: "light.svg" });
+  assert.equal(await siteFilter(), "invert(0.85) grayscale(1)", "the same Dark filter as Gmail");
+  await site.screenshot({ path: path.join(shots, "sites-force-dark.png") });
+
+  // This site: off and on again from the popup, live; light.js leaves a site that is off alone.
+  await aim("sites.test");
+  await popup.waitForSelector("#site-row:not([disabled])");
+  assert.equal(await popup.textContent("#site-name"), "sites.test");
+  assert.equal(await selected("site"), "on");
+  await popup.locator("body").screenshot({ path: path.join(shots, "popup-site-on.png") });
+  await choose("site", "off");
+  await site.waitForFunction(() => !document.documentElement.hasAttribute("data-eink"));
+  assert.equal(await siteFilter(), "none");
+  await captionIs("Now: Night (Auto) · This site as usual");
+  await popup.waitForFunction(async () => (await chrome.scripting.getRegisteredContentScripts())
+    .find(script => script.id === "light")?.excludeMatches?.includes("*://sites.test/*"));
+  await popup.locator("body").screenshot({ path: path.join(shots, "popup-site-off.png") });
+  await choose("site", "on");
+  await siteEink("dark");
+  assert.deepEqual(await popup.evaluate(async () => (await chrome.storage.sync.get("off")).off), []);
+  await popup.waitForFunction(async () => (await chrome.scripting.getRegisteredContentScripts())
+    .find(script => script.id === "light")?.excludeMatches?.length === 0);
+
+  // A page extensions can't change: the row is disabled, with the reason.
+  const blocked = await context.newPage();
+  await blocked.goto("chrome://version");
+  await aim("blocked");
+  await popup.waitForFunction(() => document.querySelector("#site-name").textContent.startsWith("Chrome doesn't"));
+  assert.equal(await popup.isDisabled("input[name=site][value=off]"), true);
+  await popup.locator("body").screenshot({ path: path.join(shots, "popup-blocked.png") });
+  await blocked.close();
+
+  // A dark theme the site keeps for itself: the dark-site check takes over, as for Gmail's own.
+  await site.goto("https://sites.test/saved-dark.html");
+  await site.waitForFunction(() => document.documentElement.hasAttribute("data-site-dark"));
+  assert.equal(await siteFilter(), "grayscale(1)");
+  await site.screenshot({ path: path.join(shots, "sites-saved-dark.png") });
+
+  // A page with no background of its own is dark gray under Dark, not white.
+  await site.goto("https://sites.test/plain.html");
+  await siteEink("dark");
+  const canvas = await pixel(site, 640, 700);
+  assert.ok(Math.max(...canvas) < 60, `the plain page below its text is ${hex(canvas)}, not dark gray`);
+  await site.screenshot({ path: path.join(shots, "sites-plain-dark.png") });
+
+  // Fullscreen content escapes the page filter, so its photo must not flip into a negative.
+  await site.goto("https://sites.test/fullscreen.html");
+  await siteEink("dark");
+  await site.click("#go");
+  await site.waitForFunction(() => document.fullscreenElement?.id === "stage");
+  await new Promise(resolve => setTimeout(resolve, 300));
+  const photo = await pixel(site, 640, 400);
+  assert.ok(photo[0] > photo[2] + 60, `the fullscreen photo is ${hex(photo)}; a negative of #f0c040 would be blue`);
+  await site.screenshot({ path: path.join(shots, "sites-fullscreen-dark.png") });
+  await site.evaluate(() => document.exitFullscreen());
+  assert.ok(await lightRegistered(), "light.js stays registered in Auto");
 
   await browser.close();
   proc.kill();

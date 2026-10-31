@@ -1,0 +1,18 @@
+<!doctype html>
+<!-- A photo in an element that goes fullscreen. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fullscreen</title>
+<style>
+  body { margin: 0; background: #fff; }
+  #stage { background: #fff; }
+  #stage img { width: 100%; height: 100%; object-fit: cover; display: block; }
+</style>
+</head>
+<body>
+<button id="go">Fullscreen</button>
+<div id="stage"><img src="photo.svg" alt=""></div>
+<script>document.querySelector("#go").addEventListener("click", () => document.querySelector("#stage").requestFullscreen());</script>
+</body>
+</html>
