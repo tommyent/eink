@@ -1,6 +1,7 @@
 // eink.css is always injected but only applies while <html> carries data-eink="warm|dark" (the top
 // page) or data-eink-frame (a frame inside an inverted page).
-const defaults = { mode: "auto", palette: "dark" };
+// off: the sites the popup's This site switch turned off, by host name.
+const defaults = { mode: "auto", palette: "dark", off: [] };
 const settings = { ...defaults };
 const night = matchMedia("(prefers-color-scheme: dark)");
 const root = document.documentElement;
@@ -20,7 +21,8 @@ const readCache = key => reads[key] ??= chrome.storage.local.get(key).then(value
 function apply(values = {}) {
   for (const key in defaults) if (key in values) settings[key] = values[key] ?? defaults[key];
   // Auto: e-ink only while the Mac is in dark mode; macOS Auto flips that at sunset.
-  const active = settings.mode === "on" || (settings.mode === "auto" && night.matches);
+  const off = Array.isArray(settings.off) ? settings.off : [];
+  const active = (settings.mode === "on" || (settings.mode === "auto" && night.matches)) && !off.includes(site);
   const palette = settings.palette === "warm" ? "warm" : "dark";
   if (!isTop) {
     // Dark inverts a light page, Warm inverts a dark one.

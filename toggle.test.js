@@ -63,8 +63,9 @@ function content({ night = false, backgrounds = lightPage, pageAt, frame = false
 function popup({ night = false, page, ...options } = {}) {
   const element = extra => ({ disabled: true, hidden: true, textContent: "", handlers: {}, ...extra,
     addEventListener(name, handler) { this.handlers[name] = handler; } });
-  const ids = Object.fromEntries(["#controls", "#palette-row", "#caption", "#status", "#theme-note"].map(id => [id, element()]));
-  const radios = [["mode", "on"], ["mode", "off"], ["mode", "auto"], ["palette", "warm"], ["palette", "dark"]]
+  const ids = Object.fromEntries(["#controls", "#palette-row", "#site-row", "#site-name", "#caption", "#status", "#theme-note"]
+    .map(id => [id, element()]));
+  const radios = [["mode", "on"], ["mode", "off"], ["mode", "auto"], ["palette", "warm"], ["palette", "dark"], ["site", "on"], ["site", "off"]]
     .map(([name, value]) => element({ name, value, checked: false }));
   const root = { dataset: {}, off: false, toggleAttribute(name, on) { this.off = on; } };
   const chromeStorage = storage(options), mac = appearance(night);
@@ -182,13 +183,30 @@ test("the page tells the popup its site and whether it is dark anyway", async ()
   assert.deepEqual({ ...await s.ping() }, { site: "example.com", siteDark: true });
 });
 
+test("a site switched off stays as it is, live, and so do its frames", async () => {
+  const off = content({ night: true, stored: { mode: "on", off: ["example.com"] } }); await settled();
+  assert.equal(off.palette(), "off");
+  const other = content({ night: true, stored: { mode: "on", off: ["other.example"] } }); await settled();
+  assert.equal(other.palette(), "dark");
+  other.change({ off: { newValue: ["other.example", "example.com"] } }); assert.equal(other.palette(), "off");
+  other.change({ off: { newValue: ["other.example"] } }); assert.equal(other.palette(), "dark");
+  other.change({ off: { oldValue: ["other.example"] } }); assert.equal(other.palette(), "dark", "a removed list switches nothing off");
+  const bad = content({ night: true, stored: { off: "example.com" } }); await settled();
+  assert.equal(bad.palette(), "dark", "a list that isn't one is ignored");
+  // A frame goes by the page it is in, not by its own address.
+  const frame = content({ frame: true, night: true, stored: { off: ["example.com"] } }); await settled();
+  assert.equal(frame.flipsBack(), false);
+  const ownHost = content({ frame: true, night: true, stored: { off: ["widget.example"] } }); await settled();
+  assert.equal(ownHost.flipsBack(), true);
+});
+
 test("popup shows the defaults and the state right now", async () => {
   const s = popup();
   assert.equal(s.ids["#controls"].disabled, true);
   await settled();
   assert.equal(s.ids["#controls"].disabled, false);
   assert.equal(s.selected("mode"), "auto"); assert.equal(s.selected("palette"), "dark");
-  assert.equal(s.caption(), "Now: Day (Auto) · Gmail as usual"); assert.equal(s.root.off, true);
+  assert.equal(s.caption(), "Now: Day (Auto) · Sites as usual"); assert.equal(s.root.off, true);
   s.setNight(true);
   assert.equal(s.caption(), "Now: Night (Auto) · Dark e-ink"); assert.equal(s.root.off, false);
   assert.equal(s.ids["#theme-note"].hidden, true);
@@ -201,7 +219,7 @@ test("popup saves each choice and dims the palette while off", async () => {
   await s.choose("palette", "warm");
   assert.equal(s.root.dataset.palette, "warm"); assert.equal(s.caption(), "Now: On · Warm paper");
   await s.choose("mode", "off");
-  assert.equal(s.ids["#palette-row"].disabled, true); assert.equal(s.caption(), "Now: Off · Gmail as usual");
+  assert.equal(s.ids["#palette-row"].disabled, true); assert.equal(s.caption(), "Now: Off · Sites as usual");
   assert.deepEqual(s.writes, [{ mode: "on" }, { palette: "warm" }, { mode: "off" }]);
 });
 
@@ -212,6 +230,28 @@ test("popup shows a note when this site's own dark theme was detected", async ()
   assert.equal(light.ids["#theme-note"].hidden, true);
   const blocked = popup(); await settled();
   assert.equal(blocked.ids["#theme-note"].hidden, true);
+});
+
+test("popup switches this site off and on, keeping the other sites in the list", async () => {
+  const s = popup({ night: true, page: { site: "example.com", siteDark: false }, stored: { off: ["a.example"] } }); await settled();
+  assert.equal(s.ids["#site-row"].disabled, false); assert.equal(s.ids["#site-name"].textContent, "example.com");
+  assert.equal(s.selected("site"), "on");
+  await s.choose("site", "off");
+  assert.equal(s.selected("site"), "off"); assert.equal(s.caption(), "Now: Night (Auto) · This site as usual"); assert.equal(s.root.off, true);
+  await s.choose("site", "on");
+  assert.equal(s.selected("site"), "on"); assert.equal(s.caption(), "Now: Night (Auto) · Dark e-ink");
+  assert.deepEqual(s.writes.map(write => [...write.off]), [["a.example", "example.com"], ["a.example"]]);
+  // Its dark-theme note goes away with it.
+  const dark = popup({ page: { site: "example.com", siteDark: true }, stored: { off: ["example.com"] } }); await settled();
+  assert.equal(dark.selected("site"), "off"); assert.equal(dark.ids["#theme-note"].hidden, true);
+});
+
+test("popup disables This site where the page can't answer", async () => {
+  const blocked = popup(); await settled();
+  assert.equal(blocked.ids["#site-row"].disabled, true); assert.equal(blocked.selected("site"), undefined);
+  assert.match(blocked.ids["#site-name"].textContent, /Chrome doesn't let extensions change this page/);
+  const local = popup({ page: { site: "", siteDark: false } }); await settled();
+  assert.equal(local.ids["#site-row"].disabled, true); assert.match(local.ids["#site-name"].textContent, /no site name/);
 });
 
 test("popup reverts the choice and says so when saving fails", async () => {

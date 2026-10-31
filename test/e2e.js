@@ -152,7 +152,7 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   await gmail.focus("#subject");
   await new Promise(resolve => setTimeout(resolve, 300));
   assert.equal(await filter(), "none", "Auto is plain by day");
-  await captionIs("Now: Day (Auto) · Gmail as usual");
+  await captionIs("Now: Day (Auto) · Sites as usual");
   await gmail.screenshot({ path: path.join(shots, "auto-day.png") });
   await mac("dark");
   await palette("dark");
@@ -196,7 +196,7 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   await mac("dark");
   await unstyled();
   assert.equal(await popup.isDisabled("input[name=palette][value=dark]"), true, "palette disabled while off");
-  await captionIs("Now: Off · Gmail as usual");
+  await captionIs("Now: Off · Sites as usual");
   await gmail.screenshot({ path: path.join(shots, "off.png") });
   await popup.locator("body").screenshot({ path: path.join(shots, "popup-off.png") });
 

@@ -29,6 +29,14 @@
             <label><input type="radio" name="palette" value="dark"><span>Dark</span></label>
           </div>
         </fieldset>
+        <fieldset id="site-row" class="row" role="radiogroup" aria-labelledby="site-legend" aria-describedby="site-name" disabled>
+          <legend id="site-legend">This site</legend>
+          <div class="segments">
+            <label><input type="radio" name="site" value="on"><span>On</span></label>
+            <label><input type="radio" name="site" value="off"><span>Off</span></label>
+          </div>
+        </fieldset>
+        <p id="site-name" class="hint"></p>
       </fieldset>
       <p class="hint">Auto turns e-ink on only while the Mac is in dark mode.</p>
       <p id="theme-note" class="hint" hidden>This site's own dark theme is on; the palettes are adjusted for it.</p>

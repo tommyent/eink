@@ -182,6 +182,12 @@ fieldset:disabled label {
   font-size: 12px;
 }
 
+/* The host name under This site; a long one wraps rather than widening the popup. */
+#site-name {
+  margin: 0 0 4px;
+  overflow-wrap: anywhere;
+}
+
 #status {
   margin: 4px 0 0;
   font-size: 13px;
