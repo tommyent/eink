@@ -318,16 +318,46 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   assert.ok(Math.max(...canvas) < 60, `the plain page below its text is ${hex(canvas)}, not dark gray`);
   await site.screenshot({ path: path.join(shots, "sites-plain-dark.png") });
 
-  // Fullscreen content escapes the page filter, so its photo must not flip into a negative.
-  await site.goto("https://sites.test/fullscreen.html");
-  await siteEink("dark");
-  await site.click("#go");
-  await site.waitForFunction(() => document.fullscreenElement?.id === "stage");
-  await new Promise(resolve => setTimeout(resolve, 300));
-  const photo = await pixel(site, 640, 400);
-  assert.ok(photo[0] > photo[2] + 60, `the fullscreen photo is ${hex(photo)}; a negative of #f0c040 would be blue`);
-  await site.screenshot({ path: path.join(shots, "sites-fullscreen-dark.png") });
-  await site.evaluate(() => document.exitFullscreen());
+  // Fullscreen content is drawn outside the page filter. Every way a page goes fullscreen must still
+  // be black and white in both palettes: gray under Dark, warm gray under Warm. The photo is
+  // #f0c040, so in colour it is yellow and as a negative it is blue. Afterwards the page looks as before.
+  await context.route("https://player.test/**", route => new URL(route.request().url()).pathname === "/photo.svg"
+    ? route.fulfill({ contentType: "image/svg+xml", body: images["/photo.svg"] })
+    : route.fulfill({ contentType: "text/html", body: fs.readFileSync(path.join(__dirname, "embed.html"), "utf8") }));
+  const blackAndWhite = (look, [r, g, b]) => look === "dark"
+    ? Math.max(r, g, b) - Math.min(r, g, b) <= 6 && r > 130
+    : r >= g - 3 && g >= b - 3 && r - b <= 50 && r > 120;
+  // [the page's fullscreen element, screenshot name, description, how to enter]
+  const ways = [
+    ["stage", "player", "a player element", () => site.click("#go-stage")],
+    ["clip", "video", "the video itself", () => site.click("#go-clip")],
+    ["embed", "frame", "an embedded player's frame, made fullscreen by the page", () => site.click("#go-embed")],
+    ["wrap", "player-with-frame", "a player element with a frame in it", () => site.click("#go-wrap")],
+    ["embed", "embed-own-player", "an embedded player making its own player fullscreen", () => site.frameLocator("#embed").locator("#inner").click()],
+    ["root", "whole-page", "the whole page (as YouTube does it), where the page filter stays", () => site.click("#go-root")]
+  ];
+  for (const look of ["dark", "warm"]) {
+    await choose("palette", look);
+    await site.goto("https://sites.test/fullscreen.html");
+    await siteEink(look);
+    const page = await pixel(site, 1270, 790);
+    for (const [id, shot, name, enter] of ways) {
+      await enter();
+      await site.waitForFunction(id => id === "root" ? document.fullscreenElement === document.documentElement : document.fullscreenElement?.id === id, id);
+      await new Promise(resolve => setTimeout(resolve, 300));
+      // The fullscreen content fills the screen; with the whole page fullscreen, look at its photo where it is.
+      const box = id === "root" ? await site.locator("#stage img").boundingBox() : { x: 0, y: 0, width: 1280, height: 800 };
+      const seen = await pixel(site, Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2));
+      if (id === "root") assert.equal(await siteFilter(), look === "dark" ? "invert(0.85) grayscale(1)" : "grayscale(1) brightness(0.85) sepia(0.45) brightness(0.97)");
+      assert.ok(blackAndWhite(look, seen), `${name} in fullscreen under ${look} is ${hex(seen)}, not black and white`);
+      await site.screenshot({ path: path.join(shots, `fullscreen-${shot}-${look}.png`) });
+      await site.evaluate(() => document.exitFullscreen());
+      await site.waitForFunction(() => !document.fullscreenElement);
+    }
+    await new Promise(resolve => setTimeout(resolve, 300));
+    assert.deepEqual(await pixel(site, 1270, 790), page, `the page under ${look} looks as before after fullscreen`);
+    assert.equal(await site.evaluate(() => getComputedStyle(document.querySelector("#stage img")).filter), look === "dark" ? "invert(1)" : "none");
+  }
   assert.ok(await lightRegistered(), "light.js stays registered in Auto");
 
   await browser.close();

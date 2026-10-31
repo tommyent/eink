@@ -3,26 +3,32 @@
  * light/dark contrast (bold unread rows, selected rows, focus rings) and drops every accent
  * colour. content.js sets data-eink to the palette on the top page while e-ink is active,
  * data-site-dark when the site is dark anyway, and data-eink-frame on frames inside an
- * inverted page.
+ * inverted page. --eink-page is the page's filter and --eink-photo what photos end up as
+ * under it; fullscreen content uses them too.
  */
 
 /* Warm paper: white page becomes warm paper, text stays dark gray. */
 html[data-eink="warm"] {
-  filter: grayscale(1) brightness(0.85) sepia(0.45) brightness(0.97);
+  --eink-page: grayscale(1) brightness(0.85) sepia(0.45) brightness(0.97);
+  --eink-photo: grayscale(1) brightness(0.85) sepia(0.45) brightness(0.97);
+  filter: var(--eink-page);
 }
 
-/* Dark e-ink: inverted to a dark-gray page with soft light-gray text. */
+/* Dark e-ink: inverted to a dark-gray page with soft light-gray text. A photo is flipped back
+   first, and invert(1) followed by invert(0.85) is contrast(0.7): gray, a little dimmed. */
 html[data-eink="dark"] {
-  filter: invert(0.85) grayscale(1);
+  --eink-page: invert(0.85) grayscale(1);
+  --eink-photo: grayscale(1) contrast(0.7);
+  filter: var(--eink-page);
 }
 
 /* A site that is dark anyway: Dark only drops colour, Warm inverts it to paper first. */
 html[data-eink="dark"][data-site-dark] {
-  filter: grayscale(1);
+  --eink-page: grayscale(1);
 }
 
 html[data-eink="warm"][data-site-dark] {
-  filter: invert(1) brightness(1.12) grayscale(1) brightness(0.85) sepia(0.45) brightness(0.97);
+  --eink-page: invert(1) brightness(1.12) grayscale(1) brightness(0.85) sepia(0.45) brightness(0.97);
 }
 
 /* A page with no background of its own shows Chrome's white canvas, which the root filter doesn't reach. */
@@ -40,8 +46,26 @@ html[data-eink-frame] :is(img:not([src*="cleardot"], [src*="/icons/mail/"], pict
   filter: invert(1);
 }
 
-/* Fullscreen content is drawn outside the root filter, so nothing in it may flip back (it would show as a negative). */
-html:is([data-eink], [data-eink-frame]) :fullscreen,
-html:is([data-eink], [data-eink-frame]) :fullscreen * {
+/* Fullscreen content is drawn in the top layer, outside the root filter, so it gets a filter of
+   its own. A fullscreen player or video looks the way photos do on the page, and nothing inside
+   it flips back or inverts twice. When the root itself is fullscreen the page filter simply stays,
+   and inside a frame nothing changes, because the frame's own element in the page carries the filter. */
+html[data-eink] :fullscreen {
+  filter: var(--eink-photo) !important;
+}
+
+html[data-eink] :fullscreen * {
   filter: none !important;
+}
+
+/* A fullscreen frame gets the page's filter, because its content still flips its photos back. */
+html[data-eink] iframe:fullscreen {
+  filter: var(--eink-page) !important;
+}
+
+/* A frame inside a fullscreen player, where the page is inverted: invert(1) under the player's
+   filter adds up to the page's filter, which is what the frame's content expects. */
+html[data-eink="dark"]:not([data-site-dark]) :fullscreen iframe,
+html[data-eink="warm"][data-site-dark] :fullscreen iframe {
+  filter: invert(1) !important;
 }
