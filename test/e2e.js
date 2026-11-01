@@ -258,7 +258,18 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   // Another origin, with no CORS headers, so the page can't read this stylesheet's rules.
   await context.route("https://cdn.test/**", route => route.fulfill({ contentType: "text/css", body: fs.readFileSync(path.join(__dirname, "force-x.css"), "utf8") }));
   const lightRegistered = () => popup.evaluate(async () => (await chrome.scripting.getRegisteredContentScripts()).find(script => script.id === "light") ?? null);
-  await popup.waitForFunction(async () => (await chrome.scripting.getRegisteredContentScripts()).some(script => script.id === "light"));
+  // Waits until light.js's registration passes check. Polled from here, because waitForFunction
+  // takes the Promise an async function returns as truthy and doesn't wait at all.
+  const registration = async (check, what) => {
+    for (let i = 0; i < 50; i++) {
+      if (check(await lightRegistered())) return;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    throw new Error(`light.js is never registered ${what}: ${JSON.stringify(await lightRegistered())}`);
+  };
+  // Chrome can leave out an empty excludeMatches.
+  const everywhere = light => light && !light.excludeMatches?.length;
+  await registration(light => light, "at all");
   const site = await context.newPage();
   await site.setViewportSize({ width: 1280, height: 800 });
   await site.emulateMedia({ colorScheme: "dark" });
@@ -291,14 +302,12 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   await site.waitForFunction(() => !document.documentElement.hasAttribute("data-eink"));
   assert.equal(await siteFilter(), "none");
   await captionIs("Now: Night (Auto) · This site as usual");
-  await popup.waitForFunction(async () => (await chrome.scripting.getRegisteredContentScripts())
-    .find(script => script.id === "light")?.excludeMatches?.includes("*://sites.test/*"));
+  await registration(light => light?.excludeMatches?.includes("*://sites.test/*"), "without sites.test");
   await popup.locator("body").screenshot({ path: path.join(shots, "popup-site-off.png") });
   await choose("site", "on");
   await siteEink("dark");
   assert.deepEqual(await popup.evaluate(async () => (await chrome.storage.sync.get("off")).off), []);
-  await popup.waitForFunction(async () => (await chrome.scripting.getRegisteredContentScripts())
-    .find(script => script.id === "light")?.excludeMatches?.length === 0);
+  await registration(everywhere, "everywhere again");
 
   // A page extensions can't change: the row is disabled, with the reason.
   const blocked = await context.newPage();
