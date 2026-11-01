@@ -535,10 +535,11 @@ test("content.js relays only stylesheets the page links to and can't read, and o
 });
 
 test("bg.js registers light.js for every site except those switched off, and not while Off", async () => {
-  const s = background({ stored: { mode: "auto", off: ["example.com", "bad host/*", 42] } });
+  // location.hostname gives an IPv6 address in brackets; a host can hold an underscore.
+  const s = background({ stored: { mode: "auto", off: ["example.com", "[::1]", "my_host.example", "bad host/*", "a*b.example", "[::1]/*", 42] } });
   s.listeners.installed(); await settled();
   assert.deepEqual(s.calls, [["unregister", { ids: ["light"] }], ["register", [{ id: "light", matches: ["<all_urls>"],
-    excludeMatches: ["*://example.com/*"], js: ["light.js"], css: ["light.css"], runAt: "document_start", allFrames: true,
+    excludeMatches: ["*://example.com/*", "*://[::1]/*", "*://my_host.example/*"], js: ["light.js"], css: ["light.css"], runAt: "document_start", allFrames: true,
     matchOriginAsFallback: true, world: "MAIN" }]]]);
   const off = background({ stored: { mode: "off" } });
   off.listeners.startup(); await settled();

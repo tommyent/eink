@@ -309,6 +309,20 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   assert.deepEqual(await popup.evaluate(async () => (await chrome.storage.sync.get("off")).off), []);
   await registration(everywhere, "everywhere again");
 
+  // Hosts with unusual match patterns are switched off too: an IPv6 address, which
+  // location.hostname gives in brackets, and a name with an underscore.
+  const odd = ["[::1]", "my_host.example"];
+  await context.route(url => odd.includes(url.hostname), route => route.fulfill({ contentType: "text/html", body: "<p>An odd host.</p>" }));
+  await popup.evaluate(off => chrome.storage.sync.set({ off }), odd);
+  await registration(light => light?.excludeMatches?.length === 2, `without ${odd.join(" and ")}`);
+  for (const host of odd) {
+    await site.goto(`http://${host}/`);
+    // light.js rewrites the page's own colour-scheme queries wherever it runs.
+    assert.equal(await site.evaluate(() => matchMedia("(prefers-color-scheme: dark)").media), "(prefers-color-scheme: dark)", `light.js stays off ${host}`);
+  }
+  await popup.evaluate(() => chrome.storage.sync.set({ off: [] }));
+  await registration(everywhere, "everywhere again");
+
   // A page extensions can't change: the row is disabled, with the reason.
   const blocked = await context.newPage();
   await blocked.goto("chrome://version");

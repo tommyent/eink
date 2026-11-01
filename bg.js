@@ -9,8 +9,9 @@ async function registerLight() {
   const { mode = "auto", off = [] } = await chrome.storage.sync.get(["mode", "off"]);
   await chrome.scripting.unregisterContentScripts({ ids: [LIGHT] }).catch(() => {});
   if (mode !== "on" && mode !== "auto") return;
-  // A host that can't make a valid match pattern would fail the whole registration.
-  const hosts = Array.isArray(off) ? off.filter(host => typeof host === "string" && /^[a-z0-9.-]+$/i.test(host)) : [];
+  // A host that can't make a valid match pattern would fail the whole registration. Host names may
+  // hold underscores, and location.hostname gives an IPv6 address in brackets, as patterns take it.
+  const hosts = Array.isArray(off) ? off.filter(host => typeof host === "string" && /^([a-z0-9_.-]+|\[[0-9a-f:.]+\])$/i.test(host)) : [];
   await chrome.scripting.registerContentScripts([{ id: LIGHT, matches: ["<all_urls>"], excludeMatches: hosts.map(host => `*://${host}/*`),
     js: ["light.js"], css: ["light.css"], runAt: "document_start", allFrames: true, matchOriginAsFallback: true, world: "MAIN" }]);
 }
