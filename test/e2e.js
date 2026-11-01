@@ -248,7 +248,7 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   const photo = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200"><defs><linearGradient id="g"><stop offset="0" stop-color="#000"/>`
     + `<stop offset="1" stop-color="#fff"/></linearGradient></defs><rect width="300" height="200" fill="url(#g)"/><rect y="80" width="300" height="40" fill="#f0c040"/></svg>`;
   const images = { "/light.svg": svg("#ffffff"), "/dark.svg": svg("#000000"), "/photo.svg": photo };
-  const pages = ["/force.html", "/saved-dark.html", "/plain.html", "/fullscreen.html"];
+  const pages = ["/force.html", "/saved-dark.html", "/plain.html", "/fullscreen.html", "/oklch.html"];
   await context.route("https://sites.test/**", route => {
     const { pathname } = new URL(route.request().url());
     if (images[pathname]) return route.fulfill({ contentType: "image/svg+xml", body: images[pathname] });
@@ -313,6 +313,15 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   await site.waitForFunction(() => document.documentElement.hasAttribute("data-site-dark"));
   assert.equal(await siteFilter(), "grayscale(1)");
   await site.screenshot({ path: path.join(shots, "sites-saved-dark.png") });
+
+  // Colours Chrome computes as oklch() and oklab(): a near-white page is light, a near-black one dark.
+  for (const dark of [false, true]) {
+    await site.goto(`https://sites.test/oklch.html${dark ? "?dark" : ""}`);
+    await siteEink("dark");
+    await site.waitForFunction(dark => document.documentElement.hasAttribute("data-site-dark") === dark, dark, { timeout: 5000 }).catch(() => {});
+    assert.equal(await site.evaluate(() => document.documentElement.hasAttribute("data-site-dark")), dark,
+      `the ${dark ? "near-black" : "near-white"} OKLCH page ${dark ? "isn't" : "is"} read as dark`);
+  }
 
   // A page with no background of its own is dark gray under Dark, not white.
   await site.goto("https://sites.test/plain.html");

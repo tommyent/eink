@@ -52,6 +52,18 @@ function recall() {
   });
 }
 
+// Computed colours come as rgb(), oklch(), oklab(), color() and more: a 1 x 1 canvas turns any of
+// them into sRGB and alpha (0 to 255). One it can't read stays transparent.
+let paint;
+function rgba(colour) {
+  paint ??= new OffscreenCanvas(1, 1).getContext("2d", { willReadFrequently: true });
+  paint.clearRect(0, 0, 1, 1);
+  paint.fillStyle = "transparent";
+  paint.fillStyle = colour;
+  paint.fillRect(0, 0, 1, 1);
+  return paint.getImageData(0, 0, 1, 1).data;
+}
+
 // light.js gives most sites their light design; a dark theme saved on the site itself stays dark
 // and needs other filters (eink.css). Computed styles ignore our filter.
 function pageIsDark() {
@@ -64,8 +76,8 @@ function pageIsDark() {
   for (let row = 1; row <= 3; row++) for (let col = 1; col <= 4; col++) {
     let lightness = 255;
     for (let el = document.elementFromPoint(innerWidth * col / 5, innerHeight * row / 4); el; el = el.parentElement) {
-      const rgba = getComputedStyle(el).backgroundColor.match(/[\d.]+/g)?.map(Number);
-      if (rgba && (rgba[3] ?? 1) > 0.5) { lightness = 0.2126 * rgba[0] + 0.7152 * rgba[1] + 0.0722 * rgba[2]; break; }
+      const [r, g, b, a] = rgba(getComputedStyle(el).backgroundColor);
+      if (a > 128) { lightness = 0.2126 * r + 0.7152 * g + 0.0722 * b; break; }
     }
     if (lightness < 100) dark++;
   }

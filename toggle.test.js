@@ -24,6 +24,18 @@ function appearance(nightNow) {
 
 const chain = colours => colours.reduceRight((parentElement, backgroundColor) => ({ backgroundColor, parentElement }), null);
 const lightPage = ["rgba(0, 0, 0, 0)", "rgb(255, 255, 255)"];
+// A canvas that paints the rgb() and rgba() colours the tests use, and two oklch() ones: Tailwind 4's
+// gray-50 and gray-900. Like a real canvas it starts black and ignores a colour it can't read.
+const srgb = { transparent: "rgba(0, 0, 0, 0)", "oklch(0.985 0.002 247.839)": "rgb(249, 250, 251)", "oklch(0.21 0.034 264.665)": "rgb(16, 24, 40)" };
+class OffscreenCanvas {
+  getContext() {
+    let fill = "rgb(0, 0, 0)", data = [0, 0, 0, 0];
+    return { set fillStyle(colour) { colour = srgb[colour] ?? colour; if (/^rgba?\(/.test(colour)) fill = colour; },
+      clearRect() { data = [0, 0, 0, 0]; },
+      fillRect() { const [r, g, b, a = 1] = fill.match(/[\d.]+/g).map(Number); if (a > 0) data = [r, g, b, Math.round(a * 255)]; },
+      getImageData: () => ({ data }) };
+  }
+}
 
 // backgrounds: colours from the element under every sampled point up to <html>; pageAt(x, y) for
 // a page that differs by place. frame: run as a frame inside a page of https://example.com.
@@ -35,7 +47,7 @@ function content({ night = false, backgrounds = lightPage, pageAt, frame = false
   const timers = [], observers = [], navigation = [];
   const chromeStorage = storage(options), mac = appearance(night);
   const sandbox = {
-    matchMedia: mac.matchMedia, innerWidth: 1000, innerHeight: 800, URL,
+    matchMedia: mac.matchMedia, innerWidth: 1000, innerHeight: 800, URL, OffscreenCanvas,
     CustomEvent: class { constructor(type, { detail }) { this.type = type; this.detail = detail; } },
     MutationObserver: class { constructor(callback) { this.callback = callback; this.dropped = 0; observers.push(this); } observe() {} takeRecords() { this.dropped++; return []; } },
     getComputedStyle: el => { filteredReads.push("data-eink" in attributes); return { backgroundColor: el.backgroundColor }; },
@@ -188,6 +200,16 @@ test("the dark-site check votes on a grid, so one dark element can't decide", as
   const meta = content({ scheme: "dark" }); meta.ready(); assert.equal(meta.siteDark(), true);
   const both = content({ scheme: "light dark" }); both.ready(); assert.equal(both.siteDark(), false, "light dark leaves it to the grid");
   const saved = content({ classes: ["dark"] }); saved.ready(); assert.equal(saved.siteDark(), true);
+});
+
+test("the dark-site check reads colours in any colour space", async () => {
+  // Tailwind 4 writes its colours in oklch(), which Chrome computes as oklch(), not rgb().
+  const light = content({ backgrounds: ["rgba(0, 0, 0, 0)", "oklch(0.985 0.002 247.839)"] }); light.ready();
+  assert.equal(light.siteDark(), false);
+  const dark = content({ backgrounds: ["oklch(0.21 0.034 264.665)", "rgb(255, 255, 255)"] }); dark.ready();
+  assert.equal(dark.siteDark(), true);
+  const unknown = content({ backgrounds: ["colour-from-the-future(1)"] }); unknown.ready();
+  assert.equal(unknown.siteDark(), false, "a colour the canvas can't read counts as transparent, not black");
 });
 
 test("the dark-site check reads the page without our filter, and skips PDFs", async () => {

@@ -1,0 +1,17 @@
+<!doctype html>
+<!-- Backgrounds written as Tailwind 4 and color-mix() write them, which Chrome computes as oklch()
+     and oklab() rather than rgb(): near white, or with ?dark near black. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OKLCH page</title>
+<style>
+  body { margin: 0; min-height: 100vh; font: 16px system-ui; background: oklch(0.985 0.002 247.839); color: #111; }
+  main { height: 60vh; background: color-mix(in oklab, white 95%, black); }
+  .dim body { background: oklch(0.21 0.034 264.665); color: #eee; }
+  .dim main { background: color-mix(in oklab, black 90%, white); }
+</style>
+<script>if (location.search === "?dark") document.documentElement.className = "dim";</script>
+</head>
+<body><main><p>A page coloured in OKLCH.</p></main></body>
+</html>
