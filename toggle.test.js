@@ -5,11 +5,16 @@ const vm = require("node:vm");
 
 const settled = () => new Promise(resolve => setImmediate(resolve));
 
-function storage({ stored = {}, loadFails = false, saveFails = false, local = {} } = {}) {
+// held: each sync save waits there until the test calls its resolve() or reject().
+function storage({ stored = {}, loadFails = false, saveFails = false, local = {}, held } = {}) {
   const listeners = [], writes = [], localWrites = [];
   return { listeners, writes, localWrites, sync: {
     get: async () => { if (loadFails) throw new Error("Load failed"); return stored; },
-    set: async value => { if (saveFails) throw new Error("Quota exceeded"); writes.push({ ...value }); }
+    set: async value => {
+      if (held) await new Promise((resolve, reject) => held.push({ resolve, reject: () => reject(new Error("Quota exceeded")) }));
+      if (saveFails) throw new Error("Quota exceeded");
+      writes.push({ ...value });
+    }
   }, local: {
     get: async () => local, set: async value => { localWrites.push({ ...value }); }
   }, onChanged: { addListener(listener) { listeners.push(listener); } } };
@@ -437,6 +442,23 @@ test("popup reverts the choice and says so when saving fails", async () => {
   await s.choose("palette", "warm");
   assert.equal(s.selected("palette"), "dark");
   assert.match(s.ids["#status"].textContent, /Could not save/);
+});
+
+test("popup saves one choice at a time, and a failed older save doesn't undo a newer choice", async () => {
+  const held = [];
+  const s = popup({ held }); await settled();
+  s.choose("mode", "on"); s.choose("mode", "off"); await settled();
+  assert.equal(held.length, 1, "the second save waits for the first");
+  held[0].reject(); await settled();
+  assert.equal(s.selected("mode"), "off", "the newer choice stays on screen");
+  assert.equal(s.ids["#status"].textContent, "");
+  held[1].reject(); await settled();
+  assert.equal(s.selected("mode"), "auto", "when that fails too, the popup shows what is saved");
+  assert.match(s.ids["#status"].textContent, /Could not save/);
+  s.choose("mode", "on"); await settled(); held[2].resolve(); await settled();
+  s.choose("mode", "off"); await settled(); held[3].reject(); await settled();
+  assert.equal(s.selected("mode"), "on", "the last save that worked");
+  assert.deepEqual(s.writes, [{ mode: "on" }]);
 });
 
 test("popup stays disabled when the settings cannot be loaded", async () => {

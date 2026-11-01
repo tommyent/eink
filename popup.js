@@ -35,22 +35,28 @@ function render() {
   themeNote.hidden = !page?.siteDark || siteOff;
 }
 
-async function save(key, value) {
-  const previous = settings[key];
+// What sync storage holds, as far as the popup knows: a failed save goes back to it. Saves run one
+// at a time, in order, so an older choice can't land after a newer one.
+const stored = {};
+let saving = Promise.resolve();
+function save(key, value) {
   settings[key] = value;
   render();
-  try {
-    await chrome.storage.sync.set({ [key]: value });
+  return saving = saving.then(() => chrome.storage.sync.set({ [key]: value })).then(() => {
+    stored[key] = value;
     status.textContent = "";
-  } catch {
-    settings[key] = previous;
+  }, () => {
+    // A newer choice of the same setting is on screen: its own save decides.
+    if (settings[key] !== value) return;
+    settings[key] = stored[key];
     render();
     status.textContent = "Could not save the setting.";
-  }
+  });
 }
 
 chrome.storage.sync.get(Object.keys(defaults)).then(values => {
   for (const key in defaults) if (values[key] !== undefined) settings[key] = values[key];
+  Object.assign(stored, settings);
   loaded = true;
   render();
 }, () => {
@@ -67,6 +73,6 @@ render();
 controls.addEventListener("change", ({ target: { name, value } }) => {
   if (name !== "site") return save(name, value);
   const others = offList().filter(host => host !== page.site);
-  save("off", value === "off" ? [...others, page.site] : others);
+  return save("off", value === "off" ? [...others, page.site] : others);
 });
 night.addEventListener("change", render);
