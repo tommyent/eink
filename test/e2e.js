@@ -389,6 +389,64 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
     // Photos flip back wherever the page is inverted: Dark on a light page, Warm on a dark one.
     assert.equal(await site.evaluate(() => getComputedStyle(document.querySelector("#stage img")).filter), (look === "dark") !== darkPage ? "invert(1)" : "none");
   }
+
+  // A page built like X (test/social.html): photos drawn as CSS backgrounds, a photo viewer opened
+  // in-page over a black backdrop, and a saved dark theme switched on late. The page must be checked
+  // again as it changes, and every photo must be a gray photo wherever the page is inverted, never a negative.
+  await context.route("https://social.test/**", route => new URL(route.request().url()).pathname === "/photo.svg"
+    ? route.fulfill({ contentType: "image/svg+xml", body: images["/photo.svg"] })
+    : route.fulfill({ contentType: "text/html", body: fs.readFileSync(path.join(__dirname, "social.html"), "utf8") }));
+  const centre = async selector => {
+    const box = await site.locator(selector).boundingBox();
+    return pixel(site, Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2));
+  };
+  const photoIs = async (look, selector, what) => {
+    const seen = await centre(selector);
+    assert.ok(blackAndWhite(look, seen), `${what} under ${look} is ${hex(seen)}, not a ${look === "dark" ? "gray" : "warm gray"} photo`);
+  };
+  const siteDarkIs = value => site.waitForFunction(v => document.documentElement.hasAttribute("data-site-dark") === v, value, { timeout: 5000 });
+  await choose("palette", "dark");
+  await site.goto("https://social.test/");
+  await siteEink("dark");
+  await siteDarkIs(false);
+  await photoIs("dark", "#post-photo", "a photo drawn as a background");
+  await photoIs("dark", "#banner", "a banner drawn as a background");
+  await photoIs("dark", "#avatar", "a photo inside that banner");
+  assert.equal(await site.evaluate(() => getComputedStyle(document.querySelector("#avatar")).filter), "none", "the photo inside the banner isn't flipped twice");
+  await site.screenshot({ path: path.join(shots, "social-feed-dark.png") });
+  await choose("palette", "warm");
+  await siteEink("warm");
+  await photoIs("warm", "#post-photo", "a photo drawn as a background");
+  await site.screenshot({ path: path.join(shots, "social-feed-warm.png") });
+  // The viewer: a route change without a reload, over a black backdrop, so the page is dark anyway now.
+  await site.click("#open");
+  await siteDarkIs(true);
+  await photoIs("warm", "#viewer-photo", "the viewer's photo");
+  await site.screenshot({ path: path.join(shots, "social-viewer-warm.png") });
+  await choose("palette", "dark");
+  await siteEink("dark");
+  await photoIs("dark", "#viewer-photo", "the viewer's photo");
+  await site.screenshot({ path: path.join(shots, "social-viewer-dark.png") });
+  // Back to the feed, and checked again.
+  await site.click("#close");
+  await siteDarkIs(false);
+  await photoIs("dark", "#post-photo", "a photo drawn as a background");
+  // The account's dark theme, switched on late on <body>.
+  await site.click("#theme");
+  await siteDarkIs(true);
+  await photoIs("dark", "#post-photo", "a photo on the dark theme");
+  await site.screenshot({ path: path.join(shots, "social-late-theme-dark.png") });
+  // If the page strips our attribute, it comes back; left alone, nothing keeps rewriting <html>
+  // (after the one planned check 2.5 s after load, which reads the page without our attribute).
+  await site.evaluate(() => document.documentElement.removeAttribute("data-eink"));
+  await siteEink("dark");
+  await site.waitForFunction(() => performance.now() > 3500);
+  assert.equal(await site.evaluate(() => new Promise(resolve => {
+    let changes = 0;
+    const watch = new MutationObserver(records => { changes += records.length; });
+    watch.observe(document.documentElement, { attributes: true });
+    setTimeout(() => { watch.disconnect(); resolve(changes); }, 2000);
+  })), 0, "nothing rewrites <html> while the page is idle");
   assert.ok(await lightRegistered(), "light.js stays registered in Auto");
 
   await browser.close();

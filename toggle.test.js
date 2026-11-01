@@ -32,15 +32,19 @@ const lightPage = ["rgba(0, 0, 0, 0)", "rgb(255, 255, 255)"];
 function content({ night = false, backgrounds = lightPage, pageAt, frame = false, contentType = "text/html", scheme,
   classes = [], links = [], fetched = "", ...options } = {}) {
   const attributes = {}, events = {}, messages = [], filteredReads = [], dispatched = [], sent = [];
+  const timers = [], observers = [], navigation = [];
   const chromeStorage = storage(options), mac = appearance(night);
   const sandbox = {
     matchMedia: mac.matchMedia, innerWidth: 1000, innerHeight: 800, URL,
     CustomEvent: class { constructor(type, { detail }) { this.type = type; this.detail = detail; } },
+    MutationObserver: class { constructor(callback) { this.callback = callback; this.dropped = 0; observers.push(this); } observe() {} takeRecords() { this.dropped++; return []; } },
     getComputedStyle: el => { filteredReads.push("data-eink" in attributes); return { backgroundColor: el.backgroundColor }; },
     addEventListener(name, handler) { events[name] = handler; },
-    setTimeout() {},
-    location: frame ? { hostname: "widget.example", ancestorOrigins: ["https://example.com"] } : { hostname: "example.com", ancestorOrigins: [] },
-    document: { hidden: false, contentType, addEventListener(name, handler) { events[name] = handler; },
+    setTimeout(callback) { timers.push(callback); return timers.length; },
+    navigation: { addEventListener(name, listener) { if (name === "currententrychange") navigation.push(listener); } },
+    location: frame ? { href: "https://widget.example/", hostname: "widget.example", ancestorOrigins: ["https://example.com"] }
+      : { href: "https://example.com/", hostname: "example.com", ancestorOrigins: [] },
+    document: { hidden: false, readyState: "complete", contentType, addEventListener(name, handler) { events[name] = handler; },
       dispatchEvent(event) { dispatched.push(event); },
       elementFromPoint: (x, y) => pageAt ? pageAt(x, y) : chain(backgrounds),
       querySelector: selector => selector.startsWith("meta") && scheme ? { content: scheme } : null,
@@ -64,7 +68,12 @@ function content({ night = false, backgrounds = lightPage, pageAt, frame = false
     // What light.js gets back when it asks for a copy of url.
     relay: async url => { events["eink-light-fetch"]({ detail: JSON.stringify({ id: 1, url }) }); await settled(); return JSON.parse(dispatched.at(-1).detail).text; },
     localWrites: chromeStorage.localWrites, setNight: mac.setNight, ready: () => events.DOMContentLoaded(), load: () => events.load(),
-    change: (changes, area = "sync") => chromeStorage.listeners.forEach(listener => listener(changes, area)) };
+    change: (changes, area = "sync") => chromeStorage.listeners.forEach(listener => listener(changes, area)),
+    // The page navigating in place, changing <html> or <body>, or stripping one of our attributes.
+    navigate: () => navigation.forEach(listener => listener()), popstate: () => events.popstate(),
+    pageChanges: () => observers[0].callback([]), strip: name => { delete attributes[name]; observers[0].callback([]); },
+    pendingTimers: () => timers.length, silenced: () => observers[0].dropped, location: sandbox.location,
+    tick: () => { const due = timers.splice(0); due.forEach(callback => callback()); } };
 }
 
 // Runs light.js against fake page APIs. sheets: document.styleSheets.
@@ -223,6 +232,61 @@ test("a frame never gets the page filter, and flips photos back only inside an i
   const own = content({ frame: true, night: true, backgrounds: ["rgb(31, 31, 31)"] }); own.ready(); own.load(); await settled();
   assert.deepEqual(own.localWrites, [], "only the top page checks the site's theme");
   assert.equal(own.answers, 0, "and only the top page answers the popup");
+});
+
+test("an in-page route change or theme switch makes the page check again, without remembering it", async () => {
+  let viewerOpen = false;
+  const s = content({ night: true, stored: { mode: "on" }, pageAt: () => chain(viewerOpen ? ["rgba(0, 0, 0, 0.9)"] : lightPage) });
+  s.ready(); await settled();
+  assert.equal(s.siteDark(), false); assert.deepEqual(s.localWrites, [{ "dark:example.com:dark": false }]);
+  // A photo viewer opens over a black backdrop with pushState: checked again half a second later.
+  viewerOpen = true;
+  s.navigate(); s.navigate();
+  assert.equal(s.pendingTimers(), 1, "one check for a burst of changes");
+  assert.equal(s.siteDark(), false);
+  s.tick(); await settled();
+  assert.equal(s.siteDark(), true, "the black viewer is dark anyway");
+  assert.equal(s.palette(), "dark");
+  // Back to the feed with the browser's back button, then a theme switch on <body>.
+  viewerOpen = false;
+  s.popstate(); s.tick(); await settled();
+  assert.equal(s.siteDark(), false);
+  viewerOpen = true;
+  s.pageChanges(); s.tick(); await settled();
+  assert.equal(s.siteDark(), true);
+  assert.deepEqual(s.localWrites, [{ "dark:example.com:dark": false }], "only the answer at load is kept for the next visit");
+  // The check 2.5 s after load, made after the route has changed, isn't kept either.
+  s.location.href = "https://example.com/status/1/photo/1";
+  s.load(); await settled();
+  assert.deepEqual(s.localWrites, [{ "dark:example.com:dark": false }]);
+});
+
+test("our attributes come back if the page strips them, and our own writes don't set off a check", async () => {
+  const s = content({ night: true, stored: { mode: "on" } }); await settled();
+  s.ready();
+  const silenced = s.silenced();
+  assert.ok(silenced > 0, "records from our own writes are dropped");
+  s.change({ palette: { newValue: "warm" } });
+  assert.ok(s.silenced() > silenced, "a settings change drops its records too");
+  assert.equal(s.pendingTimers(), 0);
+  s.strip("data-eink"); assert.equal(s.palette(), "off");
+  s.tick(); assert.equal(s.palette(), "warm");
+});
+
+test("a top page decides for itself, while frames follow their top page", async () => {
+  // Still loading, so it hasn't checked yet: another tab's answer must not leak in.
+  const top = content({ night: true }); await settled();
+  top.change({ "dark:example.com:dark": { newValue: true } }, "local");
+  assert.equal(top.siteDark(), false, "another tab of the site on a dark view doesn't make this one dark");
+  const frame = content({ frame: true, night: true }); await settled();
+  frame.change({ "dark:example.com:dark": { newValue: true } }, "local");
+  assert.equal(frame.flipsBack(), false);
+});
+
+test("the dark-site check puts our attribute back even if reading the page fails", async () => {
+  const s = content({ night: true, stored: { mode: "on" }, pageAt: () => { throw new Error("odd page"); } }); await settled();
+  assert.throws(() => s.ready(), /odd page/);
+  assert.equal(s.palette(), "dark");
 });
 
 test("the page tells the popup its site and whether it is dark anyway", async () => {

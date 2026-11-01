@@ -12,11 +12,17 @@ const hostOf = origin => { try { return new URL(origin).hostname; } catch { retu
 const ancestors = location.ancestorOrigins ?? [];
 const site = isTop ? location.hostname : hostOf(ancestors[ancestors.length - 1]);
 
-// Whether the site is dark anyway, remembered per site and appearance so the next visit starts right.
+// Whether the site is dark anyway. The answer a page gets when it loads is remembered per site and
+// appearance, so the next visit starts right.
 let siteDark = false;
 const darkKey = () => `dark:${site}:${night.matches ? "dark" : "light"}`;
 const cache = {}, reads = {}, checked = new Set();
 const readCache = key => reads[key] ??= chrome.storage.local.get(key).then(values => { cache[key] = values[key]; }, () => {});
+
+// The page's own changes to <html> and <body> make us check again (below). Our own writes go
+// through here, which drops the records they leave, so they can't set that off.
+let observer = null;
+const quietly = write => { write(); observer?.takeRecords(); };
 
 function apply(values = {}) {
   for (const key in defaults) if (key in values) settings[key] = values[key] ?? defaults[key];
@@ -24,14 +30,16 @@ function apply(values = {}) {
   const off = Array.isArray(settings.off) ? settings.off : [];
   const active = (settings.mode === "on" || (settings.mode === "auto" && night.matches)) && !off.includes(site);
   const palette = settings.palette === "warm" ? "warm" : "dark";
-  if (!isTop) {
-    // Dark inverts a light page, Warm inverts a dark one.
-    root.toggleAttribute("data-eink-frame", active && (palette === "dark") !== siteDark);
-    return;
-  }
-  if (active) root.setAttribute("data-eink", palette);
-  else root.removeAttribute("data-eink");
-  root.toggleAttribute("data-site-dark", siteDark);
+  quietly(() => {
+    if (!isTop) {
+      // Dark inverts a light page, Warm inverts a dark one.
+      root.toggleAttribute("data-eink-frame", active && (palette === "dark") !== siteDark);
+      return;
+    }
+    if (!active) root.removeAttribute("data-eink");
+    else if (root.getAttribute("data-eink") !== palette) root.setAttribute("data-eink", palette);
+    root.toggleAttribute("data-site-dark", siteDark);
+  });
 }
 
 // Starts from the remembered answer, unless this page has already checked for itself.
@@ -64,18 +72,26 @@ function pageIsDark() {
   return dark > 6;
 }
 
-function detectSiteTheme() {
+// remember: this is how the site looks as a page loads, worth keeping for the next visit. A check
+// after an in-page route change or a theme switch only decides the page as it is now: a dark
+// photo viewer over a light feed mustn't make the site start dark next time. The check 2.5 s
+// after load counts only if the page is still on the address it loaded with.
+const loadedAt = location.href;
+function detectSiteTheme(remember = true) {
   // Chrome's PDF viewer is dark around a white page: invert it like any light page.
   if (!isTop || document.contentType === "application/pdf") return;
   // Read the page's own colours: our white canvas and filters all key off data-eink.
   const palette = root.getAttribute("data-eink");
-  root.removeAttribute("data-eink");
-  const dark = pageIsDark();
-  if (palette) root.setAttribute("data-eink", palette);
+  let dark;
+  quietly(() => {
+    root.removeAttribute("data-eink");
+    try { dark = pageIsDark(); } finally { if (palette) root.setAttribute("data-eink", palette); }
+  });
   const key = darkKey();
   checked.add(key);
   siteDark = dark;
   apply();
+  if (!remember || location.href !== loadedAt) return;
   readCache(key).then(() => {
     if (cache[key] === dark) return;
     cache[key] = dark;
@@ -83,13 +99,26 @@ function detectSiteTheme() {
   });
 }
 
+// Single-page apps such as X change routes and switch their own theme without reloading, and may
+// rewrite <html>'s attributes: check again shortly after, at most every half second.
+let pending = 0;
+function recheck() {
+  if (pending) return;
+  pending = setTimeout(() => {
+    pending = 0;
+    if (document.readyState !== "loading") detectSiteTheme(false);
+    apply();
+  }, 500);
+}
+
 chrome.storage.sync.get(Object.keys(defaults)).then(apply, () => apply());
 recall();
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "sync") apply(Object.fromEntries(Object.entries(changes).map(([key, { newValue }]) => [key, newValue])));
-  // Frames follow the top page's answer, and every tab of a site follows the latest one.
+  // Frames follow their top page's answer. A top page decides for itself, because another tab of
+  // the same site may be on a different view.
   const key = darkKey();
-  if (area === "local" && key in changes && !checked.has(key) && typeof changes[key].newValue === "boolean") {
+  if (area === "local" && !isTop && key in changes && typeof changes[key].newValue === "boolean") {
     cache[key] = siteDark = changes[key].newValue;
     apply();
   }
@@ -99,9 +128,19 @@ night.addEventListener("change", () => { apply(); recall(); });
 // don't answer, because extensions can't run there.
 if (isTop) chrome.runtime.onMessage.addListener((message, sender, reply) => { if (message === "eink-ping") reply({ site, siteDark }); });
 // Pages paint over time; check once the DOM is in, at load, once more after that, and when the tab comes back.
-document.addEventListener("DOMContentLoaded", detectSiteTheme);
-addEventListener("load", () => { detectSiteTheme(); setTimeout(detectSiteTheme, 2500); });
-document.addEventListener("visibilitychange", () => { if (!document.hidden) detectSiteTheme(); });
+document.addEventListener("DOMContentLoaded", () => {
+  detectSiteTheme();
+  if (document.body) observer.observe(document.body, { attributes: true, attributeFilter: ["class", "style"] });
+});
+addEventListener("load", () => { detectSiteTheme(); setTimeout(() => detectSiteTheme(), 2500); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) detectSiteTheme(false); });
+// And whenever the page changes itself: in-page navigation (pushState, replaceState, back and
+// forward), the classes and style on <html> and <body> where sites switch their theme, and our
+// own attributes, if the page strips them.
+observer = new MutationObserver(recheck);
+observer.observe(root, { attributes: true, attributeFilter: ["class", "style", "data-eink", "data-site-dark", "data-eink-frame"] });
+window.navigation?.addEventListener("currententrychange", recheck);
+addEventListener("popstate", recheck);
 
 // light.js runs in the page's own world and can't reach the extension, so it asks here for the
 // cross-origin stylesheets it can't read. Trust boundary: the page can send this event too, so
