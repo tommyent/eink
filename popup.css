@@ -5,8 +5,6 @@
   --ink: #d6d6d6;
   --muted: #a3a3a3;
   --line: #8c8c8c;
-  --serif: "Iowan Old Style", "Palatino", Georgia, serif;
-  font: 14px/1.4 system-ui, sans-serif;
   color-scheme: dark;
 }
 
@@ -19,83 +17,32 @@
   color-scheme: light;
 }
 
+:root {
+  /* The segments' track and the rules between rows, a step off the screen colour. */
+  --track: color-mix(in srgb, var(--ink) 8%, var(--screen));
+  --rule: color-mix(in srgb, var(--line) 40%, transparent);
+  font: 13px/1.4 system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--ink);
+  color: var(--screen);
+}
+
 body {
   margin: 0;
-  width: 272px;
-  padding: 12px;
+  width: 280px;
+  padding: 10px;
   background: var(--bezel);
 }
 
 main {
-  padding: 16px 18px 12px;
-  border-radius: 6px;
+  padding: 14px 16px;
+  border-radius: 10px;
   background: var(--screen);
   color: var(--ink);
   box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.35);
-}
-
-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-h1 {
-  margin: 0;
-  font: 600 19px/1.2 var(--serif);
-  letter-spacing: 0.01em;
-}
-
-/* Tiny page of text in the current palette. */
-.preview {
-  display: grid;
-  align-content: center;
-  gap: 4px;
-  width: 40px;
-  height: 30px;
-  padding: 0 6px;
-  box-sizing: border-box;
-  border: 1px solid var(--line);
-  border-radius: 3px;
-}
-
-.preview i {
-  height: 2px;
-  background: var(--ink);
-}
-
-.preview i:last-child {
-  width: 60%;
-}
-
-:root[data-off] .preview {
-  border-style: dashed;
-}
-
-:root[data-off] .preview i {
-  background: var(--line);
-}
-
-#caption {
-  margin: 4px 0 12px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 0;
-  border-top: 1px solid color-mix(in srgb, var(--line) 45%, transparent);
-}
-
-label {
-  cursor: pointer;
-}
-
-legend {
-  font: 600 16px/1.2 var(--serif);
 }
 
 fieldset {
@@ -105,39 +52,85 @@ fieldset {
   border: 0;
 }
 
-fieldset.row {
-  padding: 10px 0;
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--rule);
 }
 
 legend {
   float: left;
-  display: flex;
-  gap: 6px;
-  align-items: center;
   padding: 0;
+  font-size: 14px;
+  font-weight: 600;
 }
 
-/* Segmented control: native radios, visually hidden, with their labels as segments. */
+/* The title row: icon and name, labelling the On, Off and Auto switch. */
+.mode {
+  padding: 0 0 2px;
+  border-top: 0;
+}
+
+.mode legend {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.mode img {
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+
+/* Sites as usual right now: the icon steps back. */
+:root[data-off] .mode img {
+  opacity: 0.5;
+}
+
+h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* Under the name, lined up with it. */
+#caption {
+  margin: 0 0 12px;
+  padding-left: 32px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Segmented control: native radios, visually hidden, with their labels as segments on a track. */
 .segments {
   display: flex;
+  gap: 2px;
   margin-left: auto;
-  border: 1.5px solid var(--line);
-  border-radius: 6px;
-  overflow: hidden;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--track);
 }
 
 .segments label {
   flex: none;
-}
-
-.segments label + label span {
-  border-left: 1.5px solid var(--line);
+  cursor: pointer;
 }
 
 .segments span {
   display: block;
-  padding: 3px 9px;
-  font-size: 13px;
+  min-width: 36px;
+  padding: 4px 10px;
+  box-sizing: border-box;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
 }
 
 .segments input {
@@ -146,14 +139,19 @@ legend {
   pointer-events: none;
 }
 
+.row:enabled .segments label:hover input:not(:checked) + span {
+  background: color-mix(in srgb, var(--ink) 14%, transparent);
+}
+
 .segments input:checked + span {
   background: var(--ink);
   color: var(--screen);
+  font-weight: 600;
 }
 
 .segments input:focus-visible + span {
   outline: 2px solid var(--ink);
-  outline-offset: -5px;
+  outline-offset: -4px;
 }
 
 .segments input:checked:focus-visible + span {
@@ -164,33 +162,44 @@ fieldset:disabled .segments {
   opacity: 0.45;
 }
 
-fieldset:disabled legend {
+fieldset:disabled label {
+  cursor: default;
+}
+
+.row:not(.mode):disabled > legend {
   opacity: 0.6;
 }
 
-fieldset:disabled label {
-  cursor: default;
+.hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .hint[hidden] {
   display: none;
 }
 
-.hint {
-  margin: 8px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-/* The host name under This site; a long one wraps rather than widening the popup. */
+/* The host name, or why This site is off, just under that row; a long one wraps rather than widening the popup. */
 #site-name {
-  margin: 0 0 4px;
+  margin: -6px 0 0;
   overflow-wrap: anywhere;
 }
 
+#site-name:empty {
+  display: none;
+}
+
+#theme-note {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+}
+
 #status {
-  margin: 4px 0 0;
-  font-size: 13px;
+  margin: 12px 0 0;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 #status:empty {

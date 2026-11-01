@@ -8,20 +8,17 @@
   </head>
   <body>
     <main>
-      <header>
-        <h1>E-ink</h1>
-        <div class="preview" aria-hidden="true"><i></i><i></i><i></i></div>
-      </header>
-      <p id="caption"></p>
       <fieldset id="controls" disabled>
-        <fieldset class="row" role="radiogroup" aria-labelledby="mode-legend">
-          <legend id="mode-legend">E-ink</legend>
+        <!-- The product name labels its own On, Off and Auto switch. -->
+        <fieldset class="row mode" role="radiogroup" aria-labelledby="mode-legend" aria-describedby="caption">
+          <legend id="mode-legend"><img src="icons/icon-48.png" alt="" width="24" height="24"><h1>E-ink</h1></legend>
           <div class="segments">
             <label><input type="radio" name="mode" value="on"><span>On</span></label>
             <label><input type="radio" name="mode" value="off"><span>Off</span></label>
             <label><input type="radio" name="mode" value="auto"><span>Auto</span></label>
           </div>
         </fieldset>
+        <p id="caption"></p>
         <fieldset id="palette-row" class="row" role="radiogroup" aria-labelledby="palette-legend">
           <legend id="palette-legend">Palette</legend>
           <div class="segments">
@@ -38,7 +35,6 @@
         </fieldset>
         <p id="site-name" class="hint"></p>
       </fieldset>
-      <p class="hint">Auto turns e-ink on only while the Mac is in dark mode.</p>
       <p id="theme-note" class="hint" hidden>This site's own dark theme is on; the palettes are adjusted for it.</p>
       <p id="status" role="status" aria-live="polite"></p>
     </main>
