@@ -131,13 +131,14 @@ function background({ stored = {}, response, page } = {}) {
       onMessage: { addListener(listener) { listeners.message = listener; } } }
   };
   const fetch = async (url, init) => { fetches.push([url, JSON.parse(JSON.stringify(init))]); return response; };
-  vm.runInNewContext(fs.readFileSync(`${__dirname}/bg.js`, "utf8"), { chrome, fetch, console });
+  vm.runInNewContext(fs.readFileSync(`${__dirname}/bg.js`, "utf8"), { chrome, fetch, console, TextDecoder, URL });
   // A message from a content script: what bg.js answers, or null if it doesn't.
   const send = (message, sender) => new Promise(resolve => { if (listeners.message(message, sender, resolve) !== true) resolve(null); });
   return { calls, listeners, fetches, tabMessages, send, ask: (fetchCSS, sender = { tab: { id: 1 } }) => send({ fetchCSS }, sender) };
 }
-const css = (body, type = "text/css; charset=utf-8", extra = {}) =>
-  ({ ok: true, headers: { get: name => ({ "content-type": type, ...extra })[name] ?? null }, text: async () => body });
+// A response whose body arrives as one chunk.
+const css = (body, type = "text/css; charset=utf-8", extra = {}) => ({ ok: true,
+  headers: { get: name => ({ "content-type": type, ...extra })[name] ?? null }, body: [new TextEncoder().encode(body)], text: async () => body });
 
 // page: what the page in the active tab answers, or nothing where E-ink can't run.
 function popup({ night = false, page, ...options } = {}) {
@@ -507,6 +508,20 @@ test("light.js replaces a stylesheet it can't read with a rewritten copy, resolv
   assert.equal(link.sheet.disabled, true);
 });
 
+test("light.js keeps a copy to the original's media, and leaves alternate and disabled stylesheets alone", () => {
+  const s = light();
+  const link = (href, extra) => Object.assign(new s.sandbox.HTMLLinkElement(href), { rel: "stylesheet", media: "" }, extra);
+  const blocked = (ownerNode, disabled = false) => ({ ownerNode, disabled, get cssRules() { throw new Error("SecurityError"); } });
+  const print = link("https://cdn.example/print.css", { media: "print" });
+  s.sandbox.document.styleSheets.push(blocked(print), blocked(link("https://cdn.example/alt.css", { rel: "alternate stylesheet" })),
+    blocked(link("https://cdn.example/off.css"), true));
+  s.listeners.DOMContentLoaded();
+  const asked = s.events.map(event => JSON.parse(event.detail));
+  assert.deepEqual(asked.map(({ url }) => url), ["https://cdn.example/print.css"]);
+  s.listeners["eink-light-css"]({ detail: JSON.stringify({ id: asked[0].id, text: "@media (prefers-color-scheme: dark) {}" }) });
+  assert.equal(s.inserted[0].media, "print");
+});
+
 test("content.js relays only stylesheets the page links to and can't read, and only a few", async () => {
   const blocked = { get cssRules() { throw new Error("SecurityError"); } };
   const s = content({ fetched: "@media (prefers-color-scheme: dark) {}", links: [
@@ -539,7 +554,7 @@ test("bg.js fetches stylesheets without cookies and hands back only CSS with dar
   const dark = "@media (prefers-color-scheme: dark) { body { background: #000 } }";
   const ok = background({ response: css(dark) });
   assert.equal(await ok.ask("https://cdn.example/site.css"), dark);
-  assert.deepEqual(ok.fetches, [["https://cdn.example/site.css", { credentials: "omit", referrerPolicy: "no-referrer" }]]);
+  assert.deepEqual(ok.fetches, [["https://cdn.example/site.css", { credentials: "omit", referrerPolicy: "no-referrer", redirect: "error" }]]);
   assert.equal(await background({ response: css(dark, "application/json") }).ask("https://api.example/me"), "");
   assert.equal(await background({ response: css(dark, "text/html") }).ask("https://mail.example/inbox"), "");
   assert.equal(await background({ response: css("body { color: red }") }).ask("https://cdn.example/plain.css"), "", "nothing to rewrite");
@@ -550,4 +565,33 @@ test("bg.js fetches stylesheets without cookies and hands back only CSS with dar
   assert.equal(await local.ask("chrome-extension://abc/x.css"), "");
   assert.equal(local.fetches.length, 0);
   assert.equal(await background({ response: css(dark) }).ask("https://cdn.example/site.css", {}), null, "only pages' content scripts may ask");
+});
+
+test("bg.js stops reading a stylesheet past 2 MB, even without a Content-Length", async () => {
+  let pulled = 0, cancelled = false;
+  const endless = { [Symbol.asyncIterator]: () => ({
+    next: async () => { pulled++; return { value: new Uint8Array(1_000_000), done: false }; },
+    return: async () => { cancelled = true; return { done: true }; } }) };
+  const s = background({ response: { ...css("@media (prefers-color-scheme: dark) {}"), body: endless } });
+  assert.equal(await s.ask("https://cdn.example/endless.css"), "");
+  assert.equal(pulled, 3, "read up to the first chunk past the cap");
+  assert.equal(cancelled, true, "and the download is cancelled");
+});
+
+test("bg.js fetches nothing from this computer or its network for a page that isn't there itself", async () => {
+  const dark = "@media (prefers-color-scheme: dark) {}";
+  const s = background({ response: css(dark) });
+  const from = url => ({ tab: { id: 1 }, frameId: 0, url });
+  for (const url of ["http://localhost:3000/a.css", "http://127.0.0.1/a.css", "http://0.0.0.0/a.css", "http://10.1.2.3/a.css",
+    "http://172.16.0.1/a.css", "http://172.31.255.1/a.css", "http://192.168.1.1/status.css", "http://169.254.169.254/a.css",
+    "http://100.64.0.1/a.css", "http://100.127.0.1/a.css", "http://[::1]/a.css", "http://[fd12::1]/a.css", "http://[fe80::1]/a.css",
+    "http://[::ffff:127.0.0.1]/a.css", "http://router/a.css", "http://nas.local/a.css", "http://printer.lan/a.css", "http://app.localhost/a.css"]) {
+    assert.equal(await s.ask(url, from("https://example.com/")), "", url);
+  }
+  assert.equal(s.fetches.length, 0);
+  for (const url of ["http://172.32.0.1/a.css", "http://100.128.0.1/a.css", "http://11.0.0.1/a.css", "https://cdn.example/a.css", "http://[2001:db8::1]/a.css"]) {
+    assert.equal(await s.ask(url, from("https://example.com/")), dark, `${url} is public`);
+  }
+  assert.equal(await s.ask("http://192.168.1.20/site.css", from("http://192.168.1.20:8080/")), dark, "a page on the network itself can");
+  assert.equal(await s.ask("http://localhost:5173/site.css", from("http://localhost:3000/")), dark);
 });

@@ -25,16 +25,29 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(sync);
 chrome.storage.onChanged.addListener((changes, area) => { if (area === "sync" && ("mode" in changes || "off" in changes)) sync(); });
 
+// Hosts on this computer or its network: loopback, private, shared (CGNAT, as Tailscale uses) and
+// link-local addresses, and local names. A public name that points at one can't be told apart here.
+const LOCAL = /^(localhost|0\.|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|\[(::1?\]|::ffff:|f[cd]|fe[89ab]))|^[^.[]+$|\.(localhost|local|internal|lan|home\.arpa)$/i;
+const isLocal = url => { try { return LOCAL.test(new URL(url).hostname); } catch { return false; } };
+
 // Trust boundary: the page chooses the URL (content.js checks it is a stylesheet the page links
-// to and can't read). Fetch it without cookies or a referrer, accept only CSS, and hand back only
-// CSS that has dark-mode rules to rewrite, so a page can't read other data through the extension.
-async function fetchCSS(url) {
-  if (!/^https?:\/\//i.test(url)) return "";
-  const response = await fetch(url, { credentials: "omit", referrerPolicy: "no-referrer" });
+// to and can't read). Fetch it without cookies, a referrer or redirects, and from this computer or
+// its network only for a page there itself; accept only CSS up to 2 MB, and hand back only CSS
+// that has dark-mode rules to rewrite, so a page can't read other data through the extension.
+async function fetchCSS(url, page) {
+  if (!/^https?:\/\//i.test(url) || (isLocal(url) && !isLocal(page))) return "";
+  const response = await fetch(url, { credentials: "omit", referrerPolicy: "no-referrer", redirect: "error" });
   if (!response.ok || !/^text\/css\s*(;|$)/i.test(response.headers.get("content-type") ?? "")
     || Number(response.headers.get("content-length")) > MAX_CSS) return "";
-  const text = await response.text();
-  return text.length <= MAX_CSS && /prefers-color-scheme/i.test(text) ? text : "";
+  // Without a Content-Length, stop reading past the cap: leaving the loop cancels the download.
+  const decoder = new TextDecoder();
+  let text = "", size = 0;
+  for await (const chunk of response.body) {
+    if ((size += chunk.length) > MAX_CSS) return "";
+    text += decoder.decode(chunk, { stream: true });
+  }
+  text += decoder.decode();
+  return /prefers-color-scheme/i.test(text) ? text : "";
 }
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (!sender.tab) return;
@@ -49,6 +62,6 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     return;
   }
   if (typeof message?.fetchCSS !== "string") return;
-  fetchCSS(message.fetchCSS).then(reply, () => reply(""));
+  fetchCSS(message.fetchCSS, sender.url).then(reply, () => reply(""));
   return true;
 });

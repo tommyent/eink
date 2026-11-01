@@ -40,7 +40,8 @@
   let ids = 0;
   function copy(sheet) {
     const link = sheet.ownerNode;
-    if (!(link instanceof HTMLLinkElement)) return;
+    // An alternate or disabled stylesheet doesn't apply now, and a copy of it would.
+    if (!(link instanceof HTMLLinkElement) || sheet.disabled || /\balternate\b/i.test(link.rel)) return;
     pending.set(++ids, link);
     document.dispatchEvent(new CustomEvent("eink-light-fetch", { detail: JSON.stringify({ id: ids, url: link.href }) }));
   }
@@ -55,7 +56,8 @@
     const css = lighten(text)
       .replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, (match, quote, url) => /^(data|blob):|^#/i.test(url) ? match : `url("${absolute(url, link.href)}")`)
       .replace(/@import\s+(['"])([^'"]+)\1/gi, (match, quote, url) => `@import "${absolute(url, link.href)}"`);
-    link.after(Object.assign(document.createElement("style"), { textContent: css }));
+    // It keeps the original's media restriction (already made light), so print rules stay print-only.
+    link.after(Object.assign(document.createElement("style"), { textContent: css, media: link.media }));
     if (link.sheet) link.sheet.disabled = true;
   });
 
