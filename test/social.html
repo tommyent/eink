@@ -1,7 +1,8 @@
 <!doctype html>
 <!-- A page built like X: each photo drawn as a CSS background with an invisible <img> over it (the
-     way React Native for Web renders images), a photo viewer opened in-page with history.pushState
-     over a black backdrop, and a saved dark theme the page switches to late, without a reload. -->
+     way React Native for Web renders images), with filter: brightness(1) in the same inline style,
+     as X writes it; a photo viewer opened in-page with history.pushState over a black backdrop;
+     and a saved dark theme the page switches to late, without a reload. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -20,18 +21,19 @@
 <body>
 <main>
   <!-- A profile banner drawn as a background, with the avatar photo inside it: flipped back once, not twice. -->
-  <div id="banner" style="background-image: url(&quot;photo.svg&quot;); background-size: 100% 100%; position: relative; width: 500px; height: 120px;"><img id="avatar" src="photo.svg" alt="" style="position: absolute; left: 16px; bottom: 8px; width: 120px; height: 80px;"></div>
+  <div id="banner" style="filter: brightness(1); background-image: url(&quot;photo.svg&quot;); background-size: 100% 100%; position: relative; width: 500px; height: 120px;"><img id="avatar" src="photo.svg" alt="" style="position: absolute; left: 16px; bottom: 8px; width: 120px; height: 80px;"></div>
   <p>A post with a photo.</p>
-  <a id="open" href="/status/1/photo/1"><div id="post-photo" class="media"><div style="background-image: url(&quot;photo.svg&quot;);"></div><img src="photo.svg" alt="Image"></div></a>
-  <p><button id="theme">Dark theme</button></p>
+  <a id="open" href="/status/1/photo/1"><div id="post-photo" class="media"><div style="filter: brightness(1); background-image: url(&quot;photo.svg&quot;);"></div><img src="photo.svg" alt="Image"></div></a>
+  <p><button id="theme">Dark theme</button> <button id="full">Photo fullscreen</button></p>
 </main>
-<div id="viewer"><button id="close">Close</button><div id="viewer-photo" class="media"><div style="background-image: url(&quot;photo.svg&quot;);"></div><img src="photo.svg" alt="Image"></div></div>
+<div id="viewer"><button id="close">Close</button><div id="viewer-photo" class="media"><div style="filter: brightness(1); background-image: url(&quot;photo.svg&quot;);"></div><img src="photo.svg" alt="Image"></div></div>
 <script>
   const viewer = document.querySelector("#viewer");
   const show = () => { viewer.style.display = location.pathname.endsWith("/photo/1") ? "flex" : "none"; };
   document.querySelector("#open").addEventListener("click", event => { event.preventDefault(); history.pushState(null, "", "/status/1/photo/1"); show(); });
   document.querySelector("#close").addEventListener("click", () => { history.pushState(null, "", "/"); show(); });
   addEventListener("popstate", show);
+  document.querySelector("#full").addEventListener("click", () => document.querySelector("#post-photo").requestFullscreen());
   // The account's saved dark theme, applied after load.
   document.querySelector("#theme").addEventListener("click", () => {
     document.body.style.backgroundColor = "#000";

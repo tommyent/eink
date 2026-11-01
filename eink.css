@@ -40,15 +40,25 @@ html[data-eink]:not([data-site-dark]) {
 }
 
 /* Invert photos and avatars back wherever the page is inverted, so they read normally: images,
-   video, canvas, and elements drawn with an inline background-image url(), which is how X and
-   other React Native for Web sites draw every photo (with an invisible <img> over it). Nothing
-   inside an element that is already flipped back flips again, such as the <img> of a <picture>.
-   Frames get only this rule, because the top page's filter already covers them.
-   Gmail's UI images (cleardot.gif sprites, the wordmark and icons under /icons/mail/) stay inverted with the page. */
-html[data-eink="dark"]:not([data-site-dark]) :is(img, video, picture, canvas, [style*="background"][style*="url("]):not([src*="cleardot"], [src*="/icons/mail/"], [style*="cleardot"], [style*="/icons/mail/"], :is(picture, [style*="background"][style*="url("]) *),
-html[data-eink="warm"][data-site-dark] :is(img, video, picture, canvas, [style*="background"][style*="url("]):not([src*="cleardot"], [src*="/icons/mail/"], [style*="cleardot"], [style*="/icons/mail/"], :is(picture, [style*="background"][style*="url("]) *),
-html[data-eink-frame] :is(img, video, picture, canvas, [style*="background"][style*="url("]):not([src*="cleardot"], [src*="/icons/mail/"], [style*="cleardot"], [style*="/icons/mail/"], :is(picture, [style*="background"][style*="url("]) *) {
+   video and canvas. Nothing inside an element that is already flipped back flips again, such as
+   the <img> of a <picture>. Frames get only these rules, because the top page's filter already
+   covers them. Gmail's UI images (cleardot.gif sprites, the wordmark and icons under /icons/mail/)
+   stay inverted with the page. */
+html[data-eink="dark"]:not([data-site-dark]) :is(img, video, picture, canvas):not([src*="cleardot"], [src*="/icons/mail/"], :is(picture, [style*="background"][style*="url("]) *),
+html[data-eink="warm"][data-site-dark] :is(img, video, picture, canvas):not([src*="cleardot"], [src*="/icons/mail/"], :is(picture, [style*="background"][style*="url("]) *),
+html[data-eink-frame] :is(img, video, picture, canvas):not([src*="cleardot"], [src*="/icons/mail/"], :is(picture, [style*="background"][style*="url("]) *) {
   filter: invert(1);
+}
+
+/* Elements drawn with an inline background-image url() flip back too: X and other React Native
+   for Web sites draw every photo, avatar and video poster that way, with an invisible <img> over
+   it. The same inline style sets a filter of its own (X writes filter: brightness(1) on each one),
+   which would win over this rule, hence !important. On the top page, fullscreen content is left
+   to the fullscreen rules below, which this would otherwise override. */
+html[data-eink="dark"]:not([data-site-dark]) [style*="background"][style*="url("]:not([style*="cleardot"], [style*="/icons/mail/"], :is(picture, [style*="background"][style*="url("]) *, :fullscreen, :fullscreen *),
+html[data-eink="warm"][data-site-dark] [style*="background"][style*="url("]:not([style*="cleardot"], [style*="/icons/mail/"], :is(picture, [style*="background"][style*="url("]) *, :fullscreen, :fullscreen *),
+html[data-eink-frame] [style*="background"][style*="url("]:not([style*="cleardot"], [style*="/icons/mail/"], :is(picture, [style*="background"][style*="url("]) *) {
+  filter: invert(1) !important;
 }
 
 /* Fullscreen content is drawn in the top layer, outside the root filter, so it gets a filter of

@@ -414,6 +414,16 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   await photoIs("dark", "#avatar", "a photo inside that banner");
   assert.equal(await site.evaluate(() => getComputedStyle(document.querySelector("#avatar")).filter), "none", "the photo inside the banner isn't flipped twice");
   await site.screenshot({ path: path.join(shots, "social-feed-dark.png") });
+  // The photo made fullscreen: the fullscreen rules still decide, not the flip for inline backgrounds.
+  await site.click("#full");
+  await site.waitForFunction(() => document.fullscreenElement?.id === "post-photo");
+  await new Promise(resolve => setTimeout(resolve, 300));
+  const fullscreenPhoto = await pixel(site, 640, 400);
+  assert.ok(blackAndWhite("dark", fullscreenPhoto), `the fullscreen background photo is ${hex(fullscreenPhoto)}, not a gray photo`);
+  await site.screenshot({ path: path.join(shots, "social-fullscreen-dark.png") });
+  await site.evaluate(() => document.exitFullscreen());
+  await site.waitForFunction(() => !document.fullscreenElement);
+  await new Promise(resolve => setTimeout(resolve, 500));
   await choose("palette", "warm");
   await siteEink("warm");
   await photoIs("warm", "#post-photo", "a photo drawn as a background");
