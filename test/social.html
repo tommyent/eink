@@ -2,7 +2,7 @@
 <!-- A page built like X: each photo drawn as a CSS background with an invisible <img> over it (the
      way React Native for Web renders images), with filter: brightness(1) in the same inline style,
      as X writes it; a photo viewer opened in-page with history.pushState over a black backdrop;
-     and a saved dark theme the page switches to late, without a reload. -->
+     a saved dark theme the page switches to late, without a reload; and a frame from another site. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -25,6 +25,8 @@
   <p>A post with a photo.</p>
   <a id="open" href="/status/1/photo/1"><div id="post-photo" class="media"><div style="filter: brightness(1); background-image: url(&quot;photo.svg&quot;);"></div><img src="photo.svg" alt="Image"></div></a>
   <p><button id="theme">Dark theme</button> <button id="full">Photo fullscreen</button></p>
+  <!-- An embedded card from another site, with a photo in it. -->
+  <iframe id="card" src="https://player.test/card" title="Card" style="display: block; width: 240px; height: 150px; border: 0;"></iframe>
 </main>
 <div id="viewer"><button id="close">Close</button><div id="viewer-photo" class="media"><div style="filter: brightness(1); background-image: url(&quot;photo.svg&quot;);"></div><img src="photo.svg" alt="Image"></div></div>
 <script>

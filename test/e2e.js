@@ -418,6 +418,13 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   await site.goto("https://social.test/");
   await siteEink("dark");
   await siteDarkIs(false);
+  // The card's frame flips its photo back exactly while the page around it is inverted, following
+  // its own page through every change below.
+  const card = await (await site.waitForSelector("#card")).contentFrame();
+  await card.waitForLoadState();
+  const cardFlipsIs = value => card.waitForFunction(v => document.documentElement.hasAttribute("data-eink-frame") === v, value, { timeout: 5000 });
+  await cardFlipsIs(true);
+  await photoIs("dark", "#card", "a photo in a frame");
   await photoIs("dark", "#post-photo", "a photo drawn as a background");
   await photoIs("dark", "#banner", "a banner drawn as a background");
   await photoIs("dark", "#avatar", "a photo inside that banner");
@@ -436,24 +443,31 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   await choose("palette", "warm");
   await siteEink("warm");
   await photoIs("warm", "#post-photo", "a photo drawn as a background");
+  await cardFlipsIs(false);
+  await photoIs("warm", "#card", "a photo in a frame");
   await site.screenshot({ path: path.join(shots, "social-feed-warm.png") });
   // The viewer: a route change without a reload, over a black backdrop, so the page is dark anyway now.
   await site.click("#open");
   await siteDarkIs(true);
+  await cardFlipsIs(true);
   await photoIs("warm", "#viewer-photo", "the viewer's photo");
   await site.screenshot({ path: path.join(shots, "social-viewer-warm.png") });
   await choose("palette", "dark");
   await siteEink("dark");
+  await cardFlipsIs(false);
   await photoIs("dark", "#viewer-photo", "the viewer's photo");
   await site.screenshot({ path: path.join(shots, "social-viewer-dark.png") });
   // Back to the feed, and checked again.
   await site.click("#close");
   await siteDarkIs(false);
+  await cardFlipsIs(true);
   await photoIs("dark", "#post-photo", "a photo drawn as a background");
   // The account's dark theme, switched on late on <body>.
   await site.click("#theme");
   await siteDarkIs(true);
+  await cardFlipsIs(false);
   await photoIs("dark", "#post-photo", "a photo on the dark theme");
+  await photoIs("dark", "#card", "a photo in a frame on the dark theme");
   await site.screenshot({ path: path.join(shots, "social-late-theme-dark.png") });
   // If the page strips our attribute, it comes back; left alone, nothing keeps rewriting <html>
   // (after the one planned check 2.5 s after load, which reads the page without our attribute).

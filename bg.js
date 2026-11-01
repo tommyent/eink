@@ -1,4 +1,5 @@
-// Keeps light.js registered while e-ink can be on, and fetches the cross-origin stylesheets it can't read.
+// Keeps light.js registered while e-ink can be on, fetches the cross-origin stylesheets it can't
+// read, and passes each top page's dark-site answer to its frames.
 const LIGHT = "light";
 const MAX_CSS = 2_000_000;
 
@@ -36,7 +37,18 @@ async function fetchCSS(url) {
   return text.length <= MAX_CSS && /prefers-color-scheme/i.test(text) ? text : "";
 }
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
-  if (typeof message?.fetchCSS !== "string" || !sender.tab) return;
+  if (!sender.tab) return;
+  // Frames follow the top page of their own tab: a frame asks it as it starts, and only the top
+  // page tells all its tab's frames when its answer changes.
+  if (message === "eink-top") {
+    chrome.tabs.sendMessage(sender.tab.id, "eink-ping", { frameId: 0 }).then(answer => reply(answer?.siteDark), () => reply());
+    return true;
+  }
+  if (typeof message?.siteDark === "boolean" && sender.frameId === 0) {
+    chrome.tabs.sendMessage(sender.tab.id, { siteDark: message.siteDark }).catch(() => {});
+    return;
+  }
+  if (typeof message?.fetchCSS !== "string") return;
   fetchCSS(message.fetchCSS).then(reply, () => reply(""));
   return true;
 });

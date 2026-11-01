@@ -12,8 +12,9 @@ const hostOf = origin => { try { return new URL(origin).hostname; } catch { retu
 const ancestors = location.ancestorOrigins ?? [];
 const site = isTop ? location.hostname : hostOf(ancestors[ancestors.length - 1]);
 
-// Whether the site is dark anyway. The answer a page gets when it loads is remembered per site and
-// appearance, so the next visit starts right.
+// Whether the site is dark anyway. The answer a top page gets when it loads is remembered per site
+// and appearance, so the next visit starts right. Frames follow their own top page live, through
+// bg.js, not the remembered answer, which another tab of the site may have written.
 let siteDark = false;
 const darkKey = () => `dark:${site}:${night.matches ? "dark" : "light"}`;
 const cache = {}, reads = {}, checked = new Set();
@@ -42,13 +43,21 @@ function apply(values = {}) {
   });
 }
 
-// Starts from the remembered answer, unless this page has already checked for itself.
+// A top page tells its frames whenever its answer changes; bg.js passes it to every frame in the tab.
+function decide(dark) {
+  const changed = dark !== siteDark;
+  siteDark = dark;
+  apply();
+  if (changed && isTop) chrome.runtime.sendMessage({ siteDark }).catch(() => {});
+}
+
+// A top page starts from the remembered answer, unless it has already checked for itself.
 function recall() {
+  if (!isTop) return;
   const key = darkKey();
   readCache(key).then(() => {
     if (key !== darkKey() || checked.has(key) || typeof cache[key] !== "boolean") return;
-    siteDark = cache[key];
-    apply();
+    decide(cache[key]);
   });
 }
 
@@ -101,8 +110,7 @@ function detectSiteTheme(remember = true) {
   });
   const key = darkKey();
   checked.add(key);
-  siteDark = dark;
-  apply();
+  decide(dark);
   if (!remember || location.href !== loadedAt) return;
   readCache(key).then(() => {
     if (cache[key] === dark) return;
@@ -125,20 +133,21 @@ function recheck() {
 
 chrome.storage.sync.get(Object.keys(defaults)).then(apply, () => apply());
 recall();
+// Another tab's answer never reaches this one: each tab of a site may be on a different view.
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "sync") apply(Object.fromEntries(Object.entries(changes).map(([key, { newValue }]) => [key, newValue])));
-  // Frames follow their top page's answer. A top page decides for itself, because another tab of
-  // the same site may be on a different view.
-  const key = darkKey();
-  if (area === "local" && !isTop && key in changes && typeof changes[key].newValue === "boolean") {
-    cache[key] = siteDark = changes[key].newValue;
-    apply();
-  }
 });
 night.addEventListener("change", () => { apply(); recall(); });
-// The popup asks the page which site it is and whether it is dark anyway. Chrome's own pages
-// don't answer, because extensions can't run there.
-if (isTop) chrome.runtime.onMessage.addListener((message, sender, reply) => { if (message === "eink-ping") reply({ site, siteDark }); });
+// The popup asks the top page which site it is and whether it is dark anyway; so does bg.js for a
+// frame. Chrome's own pages don't answer, because extensions can't run there. A frame starts from
+// its top page's answer and then follows what the top page tells it; an answer to its question
+// that comes after a newer one from the top page is dropped.
+let told = false;
+chrome.runtime.onMessage.addListener((message, sender, reply) => {
+  if (isTop && message === "eink-ping") reply({ site, siteDark });
+  if (!isTop && typeof message?.siteDark === "boolean") { told = true; decide(message.siteDark); }
+});
+if (!isTop) chrome.runtime.sendMessage("eink-top").then(dark => { if (!told && typeof dark === "boolean") decide(dark); }, () => {});
 // Pages paint over time; check once the DOM is in, at load, once more after that, and when the tab comes back.
 document.addEventListener("DOMContentLoaded", () => {
   detectSiteTheme();

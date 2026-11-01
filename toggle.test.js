@@ -40,9 +40,10 @@ class OffscreenCanvas {
 // backgrounds: colours from the element under every sampled point up to <html>; pageAt(x, y) for
 // a page that differs by place. frame: run as a frame inside a page of https://example.com.
 // scheme: the page's <meta name="color-scheme">; classes: on <body>. links: the page's stylesheet
-// links; fetched: what the extension hands back for a stylesheet light.js can't read.
+// links; fetched: what the extension hands back for a stylesheet light.js can't read; topDark: what
+// a frame's top page answers when the frame asks.
 function content({ night = false, backgrounds = lightPage, pageAt, frame = false, contentType = "text/html", scheme,
-  classes = [], links = [], fetched = "", ...options } = {}) {
+  classes = [], links = [], fetched = "", topDark, ...options } = {}) {
   const attributes = {}, events = {}, messages = [], filteredReads = [], dispatched = [], sent = [];
   const timers = [], observers = [], navigation = [];
   const chromeStorage = storage(options), mac = appearance(night);
@@ -69,14 +70,17 @@ function content({ night = false, backgrounds = lightPage, pageAt, frame = false
       } },
     chrome: { storage: chromeStorage, runtime: {
       onMessage: { addListener(listener) { messages.push(listener); } },
-      sendMessage: async message => { sent.push(message); return fetched; } } }
+      sendMessage: async message => { sent.push(JSON.parse(JSON.stringify(message))); return message === "eink-top" ? topDark : fetched; } } }
   };
   sandbox.window = sandbox;
   sandbox.window.top = frame ? {} : sandbox;
   vm.runInNewContext(fs.readFileSync(`${__dirname}/content.js`, "utf8"), sandbox);
   return { palette: () => attributes["data-eink"] ?? "off", siteDark: () => "data-site-dark" in attributes,
-    flipsBack: () => "data-eink-frame" in attributes, filteredReads, answers: messages.length, sent,
+    flipsBack: () => "data-eink-frame" in attributes, filteredReads, sent,
     ping: () => new Promise(resolve => messages[0]("eink-ping", {}, resolve)),
+    answersPing: () => { let answered = false; messages.forEach(listener => listener("eink-ping", {}, () => { answered = true; })); return answered; },
+    // bg.js passing on the top page's answer to every frame in the tab.
+    told: siteDark => messages.forEach(listener => listener({ siteDark }, {}, () => {})),
     // What light.js gets back when it asks for a copy of url.
     relay: async url => { events["eink-light-fetch"]({ detail: JSON.stringify({ id: 1, url }) }); await settled(); return JSON.parse(dispatched.at(-1).detail).text; },
     localWrites: chromeStorage.localWrites, setNight: mac.setNight, ready: () => events.DOMContentLoaded(), load: () => events.load(),
@@ -108,10 +112,17 @@ function light({ sheets = [] } = {}) {
     added: node => observers.find(observer => observer.observed.includes(sandbox.document)).callback([{ type: "childList", addedNodes: [node] }]) };
 }
 
-// Runs bg.js with fake Chrome APIs. stored: sync storage; response: what fetch returns.
-function background({ stored = {}, response } = {}) {
-  const calls = [], listeners = {}, fetches = [];
+// Runs bg.js with fake Chrome APIs. stored: sync storage; response: what fetch returns; page: what a
+// tab's top page answers, or nothing where E-ink can't run.
+function background({ stored = {}, response, page } = {}) {
+  const calls = [], listeners = {}, fetches = [], tabMessages = [];
   const chrome = {
+    tabs: { sendMessage: async (...args) => {
+      tabMessages.push(JSON.parse(JSON.stringify(args)));
+      if (args[1] !== "eink-ping") return;
+      if (!page) throw new Error("Could not establish connection. Receiving end does not exist.");
+      return page;
+    } },
     storage: { sync: { get: async () => stored }, local: { remove: async () => {} }, onChanged: { addListener(listener) { listeners.changed = listener; } } },
     scripting: {
       unregisterContentScripts: async options => { calls.push(["unregister", JSON.parse(JSON.stringify(options))]); },
@@ -121,8 +132,9 @@ function background({ stored = {}, response } = {}) {
   };
   const fetch = async (url, init) => { fetches.push([url, JSON.parse(JSON.stringify(init))]); return response; };
   vm.runInNewContext(fs.readFileSync(`${__dirname}/bg.js`, "utf8"), { chrome, fetch, console });
-  return { calls, listeners, fetches,
-    ask: (fetchCSS, sender = { tab: { id: 1 } }) => new Promise(resolve => { if (listeners.message({ fetchCSS }, sender, resolve) !== true) resolve(null); }) };
+  // A message from a content script: what bg.js answers, or null if it doesn't.
+  const send = (message, sender) => new Promise(resolve => { if (listeners.message(message, sender, resolve) !== true) resolve(null); });
+  return { calls, listeners, fetches, tabMessages, send, ask: (fetchCSS, sender = { tab: { id: 1 } }) => send({ fetchCSS }, sender) };
 }
 const css = (body, type = "text/css; charset=utf-8", extra = {}) =>
   ({ ok: true, headers: { get: name => ({ "content-type": type, ...extra })[name] ?? null }, text: async () => body });
@@ -245,15 +257,29 @@ test("a frame never gets the page filter, and flips photos back only inside an i
   dark.change({ palette: { newValue: "dark" } }); assert.equal(dark.flipsBack(), true);
   dark.setNight(false); assert.equal(dark.flipsBack(), false, "Auto by day: the page isn't filtered");
   // Inside a site that is dark anyway, Dark only drops colour and Warm inverts.
-  const inDark = content({ frame: true, night: true, local: { "dark:example.com:dark": true } }); await settled();
+  const inDark = content({ frame: true, night: true, topDark: true }); await settled();
   assert.equal(inDark.flipsBack(), false);
   inDark.change({ palette: { newValue: "warm" } }); assert.equal(inDark.flipsBack(), true);
   // The top page's answer reaches its frames live.
   const live = content({ frame: true, night: true }); await settled();
-  live.change({ "dark:example.com:dark": { newValue: true } }, "local"); assert.equal(live.flipsBack(), false);
+  live.told(true); assert.equal(live.flipsBack(), false);
+  live.told(false); assert.equal(live.flipsBack(), true);
   const own = content({ frame: true, night: true, backgrounds: ["rgb(31, 31, 31)"] }); own.ready(); own.load(); await settled();
   assert.deepEqual(own.localWrites, [], "only the top page checks the site's theme");
-  assert.equal(own.answers, 0, "and only the top page answers the popup");
+  assert.equal(own.answersPing(), false, "and only the top page answers the popup");
+});
+
+test("a top page tells its frames whenever its answer changes, also after checks it doesn't remember", async () => {
+  const known = content({ night: true, local: { "dark:example.com:dark": true } }); await settled();
+  assert.deepEqual(known.sent, [{ siteDark: true }], "the remembered answer it starts from");
+  let viewerOpen = false;
+  const s = content({ night: true, pageAt: () => chain(viewerOpen ? ["rgb(0, 0, 0)"] : lightPage) });
+  s.ready(); await settled();
+  assert.deepEqual(s.sent, [], "nothing to tell while the answer stays the same");
+  viewerOpen = true; s.navigate(); s.tick();
+  viewerOpen = false; s.popstate(); s.tick();
+  assert.deepEqual(s.sent, [{ siteDark: true }, { siteDark: false }]);
+  assert.deepEqual(s.localWrites, [{ "dark:example.com:dark": false }], "while only the answer at load is remembered");
 });
 
 test("an in-page route change or theme switch makes the page check again, without remembering it", async () => {
@@ -295,14 +321,32 @@ test("our attributes come back if the page strips them, and our own writes don't
   s.tick(); assert.equal(s.palette(), "warm");
 });
 
-test("a top page decides for itself, while frames follow their top page", async () => {
+test("each tab decides for itself: frames follow their own top page, not a stored answer", async () => {
   // Still loading, so it hasn't checked yet: another tab's answer must not leak in.
   const top = content({ night: true }); await settled();
   top.change({ "dark:example.com:dark": { newValue: true } }, "local");
   assert.equal(top.siteDark(), false, "another tab of the site on a dark view doesn't make this one dark");
-  const frame = content({ frame: true, night: true }); await settled();
+  top.told(true);
+  assert.equal(top.siteDark(), false, "what bg.js passes on to frames doesn't change the top page");
+  const frame = content({ frame: true, night: true, local: { "dark:example.com:dark": true } }); await settled();
   frame.change({ "dark:example.com:dark": { newValue: true } }, "local");
-  assert.equal(frame.flipsBack(), false);
+  assert.equal(frame.flipsBack(), true, "a frame goes by neither the remembered answer nor another tab's");
+  assert.deepEqual(frame.sent, ["eink-top"], "it asks its own top page as it starts");
+  // The answer to that question can arrive after something newer the top page has told it.
+  const late = content({ frame: true, night: true, topDark: true });
+  late.told(false); await settled();
+  assert.equal(late.flipsBack(), true, "the older answer is dropped");
+});
+
+test("bg.js passes a top page's answer to every frame in its own tab, and asks it for a frame", async () => {
+  const s = background({ page: { site: "example.com", siteDark: true } });
+  assert.equal(await s.send({ siteDark: true }, { tab: { id: 3 }, frameId: 0 }), null);
+  assert.equal(await s.send({ siteDark: false }, { tab: { id: 3 }, frameId: 2 }), null);
+  assert.equal(await s.send({ siteDark: false }, { frameId: 0 }), null);
+  assert.deepEqual(s.tabMessages, [[3, { siteDark: true }]], "only from a tab's top page, and to that tab");
+  assert.equal(await s.send("eink-top", { tab: { id: 4 }, frameId: 2 }), true);
+  assert.deepEqual(s.tabMessages.at(-1), [4, "eink-ping", { frameId: 0 }]);
+  assert.equal(await background().send("eink-top", { tab: { id: 4 }, frameId: 2 }), undefined, "a top page that can't answer");
 });
 
 test("the dark-site check puts our attribute back even if reading the page fails", async () => {
