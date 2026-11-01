@@ -248,7 +248,7 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   const photo = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200"><defs><linearGradient id="g"><stop offset="0" stop-color="#000"/>`
     + `<stop offset="1" stop-color="#fff"/></linearGradient></defs><rect width="300" height="200" fill="url(#g)"/><rect y="80" width="300" height="40" fill="#f0c040"/></svg>`;
   const images = { "/light.svg": svg("#ffffff"), "/dark.svg": svg("#000000"), "/photo.svg": photo };
-  const pages = ["/force.html", "/saved-dark.html", "/plain.html", "/fullscreen.html", "/oklch.html", "/theme.html"];
+  const pages = ["/force.html", "/saved-dark.html", "/plain.html", "/fullscreen.html", "/oklch.html", "/theme.html", "/auto-theme.html"];
   await context.route("https://sites.test/**", route => {
     const { pathname } = new URL(route.request().url());
     if (images[pathname]) return route.fulfill({ contentType: "image/svg+xml", body: images[pathname] });
@@ -256,7 +256,12 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
     return route.fulfill({ status: 404, body: "" });
   });
   // Another origin, with no CORS headers, so the page can't read this stylesheet's rules.
-  await context.route("https://cdn.test/**", route => route.fulfill({ contentType: "text/css", body: fs.readFileSync(path.join(__dirname, "force-x.css"), "utf8") }));
+  // The extension's own fetch of auto-theme.css is slow, as when its worker wakes from sleep.
+  await context.route("https://cdn.test/**", async route => {
+    const file = new URL(route.request().url()).pathname === "/auto-theme.css" ? "auto-theme.css" : "force-x.css";
+    if (file === "auto-theme.css" && route.request().serviceWorker()) await new Promise(resolve => setTimeout(resolve, 400));
+    await route.fulfill({ contentType: "text/css", body: fs.readFileSync(path.join(__dirname, file), "utf8") });
+  });
   const lightRegistered = () => popup.evaluate(async () => (await chrome.scripting.getRegisteredContentScripts()).find(script => script.id === "light") ?? null);
   // Waits until light.js's registration passes check. Polled from here, because waitForFunction
   // takes the Promise an async function returns as truthy and doesn't wait at all.
@@ -363,6 +368,19 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   await new Promise(resolve => setTimeout(resolve, 1000));
   await site.evaluate(() => { document.body.dataset.colorMode = "dark"; });
   await siteDarkIs(true);
+
+  // A page built like Brave Search in its Auto theme (test/auto-theme.html): its dark theme comes from
+  // a stylesheet on another origin, so it is dark anyway until light.js's copy lands. As it lands the
+  // page turns light, and E-ink must invert it in that same frame, not leave it white under the
+  // dark-anyway filter until a later check.
+  await site.goto("https://sites.test/auto-theme.html");
+  await siteEink("dark");
+  await siteDarkIs(true);
+  assert.deepEqual(await site.evaluate(() => new Promise(resolve => new MutationObserver((records, observer) => {
+    if (!document.querySelector("link + style")) return;
+    observer.disconnect();
+    resolve({ pageLight: getComputedStyle(document.body).backgroundColor === "rgb(250, 250, 250)", siteDark: document.documentElement.hasAttribute("data-site-dark") });
+  }).observe(document.head, { childList: true }))), { pageLight: true, siteDark: false }, "the page is inverted as the copy lands");
 
   // A page with no background of its own is dark gray under Dark, not white.
   await site.goto("https://sites.test/plain.html");

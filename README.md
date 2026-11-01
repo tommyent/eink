@@ -69,6 +69,8 @@ A dark query becomes `(width < 0px)` and a light one `(width >= 0px)`: valid que
 
 A stylesheet from another origin without CORS can't be read by the page. `light.js` then asks `content.js`, which asks `bg.js` to fetch its text, and a rewritten copy with the same `media` replaces it in place. Alternate and disabled stylesheets aren't copied.
 
+Until the copy lands, the page shows whatever that stylesheet gives it, such as its dark theme, and the copy can take 100 ms or more (it is downloaded again, and the extension's worker may first have to wake). When it lands, `content.js` checks the page again in the same frame. A page that was dark until then and turns light, such as Brave Search in its Auto theme, is inverted at once instead of showing white under the dark-anyway filter.
+
 The page can send that request too, so this is a trust boundary:
 
 - `content.js` passes on only a stylesheet the document links to and can't read, at most 20 per page.
@@ -170,6 +172,7 @@ On small pages served at `sites.test`, in dark mode, it checks that:
 - a saved dark theme (`test/saved-dark.html`) falls back to grayscale only;
 - pages coloured in `oklch()` and `oklab()` (`test/oklch.html`) are read as light or dark as they look;
 - themes switched with data attributes, also on a `<body>` swapped in without a reload (`test/theme.html`), are checked again;
+- a page whose dark theme comes from another origin's stylesheet, as Brave Search's Auto theme does (`test/auto-theme.html` and `test/auto-theme.css`), is inverted in the same frame the light copy lands, with that copy slowed down as when the extension's worker wakes;
 - a page with no background (`test/plain.html`) is dark gray, not white;
 - six ways of going fullscreen (`test/fullscreen.html` and the embedded player `test/embed.html`: a player, the video itself, a frame the page makes fullscreen, a player with a frame in it, an embed making its own player fullscreen, and the whole page) are black and white in both palettes, on a light page and on one that is dark anyway, never in colour or a negative; keep the tones the photo has in the page (within 6 levels); and leave the page as it was;
 - a page built like X (`test/social.html`: photos drawn as inline backgrounds, an avatar inside a background banner, a photo viewer opened with `pushState` over a black backdrop, a dark theme switched on late, and a frame from another site) shows every photo in gray, never a negative, flips the frame's photo back only while the page around it is inverted, is checked again on each change, gets `data-eink` back if it strips it, and isn't rewritten while idle.

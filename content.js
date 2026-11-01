@@ -174,5 +174,10 @@ document.addEventListener("eink-light-fetch", event => {
   const answer = text => document.dispatchEvent(new CustomEvent("eink-light-css", { detail: JSON.stringify({ id, text }) }));
   const link = [...document.querySelectorAll("link[rel~=stylesheet i]")].find(link => link.href === url);
   if (!link || !unreadable(link.sheet) || relayed++ >= 20) return answer("");
-  chrome.runtime.sendMessage({ fetchCSS: url }).then(text => answer(typeof text === "string" ? text : ""), () => answer(""));
+  chrome.runtime.sendMessage({ fetchCSS: url }).then(text => {
+    answer(typeof text === "string" ? text : "");
+    // light.js has just swapped in the copy, which can turn a page that was dark until now light
+    // (Brave Search in its Auto theme): check again in the same frame, not after a white flash.
+    if (text) detectSiteTheme(false);
+  }, () => answer(""));
 });
