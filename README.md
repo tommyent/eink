@@ -1,8 +1,12 @@
-# E-ink
+<p align="center"><img src="icons/icon-128.png" alt="" width="96" height="96"></p>
 
-<img src="icons/icon-128.png" alt="" width="64" height="64">
+<h1 align="center">E-ink</h1>
 
-A Chrome extension (Manifest V3) that gives every site an e-ink look: grayscale, no accent colours, low glare.
+<p align="center">A Chrome extension (Manifest V3) that gives every site an e-ink look:<br>grayscale, no accent colours, low glare.</p>
+
+<p align="center"><img src="docs/screenshot.jpg" alt="Wikipedia's Electronic paper article in three slices: as the site shows it, under E-ink's Warm palette, and under its Dark palette, with the E-ink popup open" width="880"></p>
+
+<p align="center"><sub>Wikipedia's <a href="https://en.wikipedia.org/wiki/Electronic_paper">Electronic paper</a> article as the site shows it, under Warm and under Dark (text CC BY-SA 4.0, photo CC0).</sub></p>
 
 ## What it does
 
@@ -113,6 +117,7 @@ The popup asks the page in the current tab for its host name and whether its own
 | `popup.html`, `popup.css`, `popup.js` | The toolbar popup. |
 | `icons/icon.svg` | The icon's source. Export the PNGs with `for s in 16 32 48 128; do rsvg-convert -w $s -h $s icons/icon.svg -o icons/icon-$s.png; done`. |
 | `toggle.test.js`, `test/` | The checks below, and the pages they serve. |
+| `docs/screenshot.jpg` | The screenshot at the top, taken in headless Chrome. |
 
 ## Pages Chrome blocks
 
