@@ -196,9 +196,3 @@ fieldset:disabled label {
 #status:empty {
   display: none;
 }
-
-@media (prefers-reduced-motion: reduce) {
-  * {
-    transition: none;
-  }
-}
