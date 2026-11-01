@@ -128,7 +128,7 @@ function background({ stored = {}, response, page } = {}) {
       if (!page) throw new Error("Could not establish connection. Receiving end does not exist.");
       return page;
     } },
-    storage: { sync: { get: async () => stored }, local: { remove: async () => {} }, onChanged: { addListener(listener) { listeners.changed = listener; } } },
+    storage: { sync: { get: async () => stored }, onChanged: { addListener(listener) { listeners.changed = listener; } } },
     scripting: {
       unregisterContentScripts: async options => { calls.push(["unregister", JSON.parse(JSON.stringify(options))]); },
       registerContentScripts: async scripts => { calls.push(["register", JSON.parse(JSON.stringify(scripts))]); } },
@@ -185,9 +185,6 @@ test("content script defaults to Auto with Dark, and survives bad or missing set
   const night = content({ night: true }); await settled(); assert.equal(night.palette(), "dark");
   const broken = content({ night: true, loadFails: true }); await settled(); assert.equal(broken.palette(), "dark");
   const bogus = content({ stored: { mode: "on", palette: "neon" } }); await settled(); assert.equal(bogus.palette(), "dark");
-  // Settings from the earlier Day/Night version are ignored rather than half-applied.
-  const old = content({ night: true, stored: { enabled: true, day: "off", night: "warm" } }); await settled();
-  assert.equal(old.palette(), "dark");
 });
 
 test("content script follows the Mac's appearance live in Auto", async () => {

@@ -26,7 +26,7 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   // Branded Chrome ignores --load-extension, so load the folder over CDP, and use the
   // default profile because Playwright's own contexts are off the record. Headless Chrome still
   // plays sound through the Mac's speakers, so mute it.
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "gmail-eink-"));
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "eink-"));
   const proc = spawn(chrome, ["--headless", "--mute-audio", "--remote-debugging-port=0", `--user-data-dir=${profile}`,
     "--enable-unsafe-extension-debugging", "--no-first-run", "--window-size=1280,800", "about:blank"], { stdio: "ignore" });
   process.on("exit", () => proc.kill());

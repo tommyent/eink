@@ -2,7 +2,7 @@
 
 <img src="icons/icon-128.png" alt="" width="64" height="64">
 
-A Chrome extension (Manifest V3) that gives every site an e-ink look: grayscale, no accent colours, low glare. It started as Gmail E-ink, and every site now looks the way Gmail did with it.
+A Chrome extension (Manifest V3) that gives every site an e-ink look: grayscale, no accent colours, low glare.
 
 ## What it does
 
@@ -33,9 +33,7 @@ The folder is the unpacked extension. It needs no dependencies or build step.
 
 E-ink needs access to every site. Its details page reads "Allow this extension to read and change all your data on websites you visit", with the choices On click, On specific sites and On all sites. E-ink expects On all sites; the other two limit it to the sites you allow. A Web Store install would warn "Read and change all your data on all websites".
 
-**After changing any file**, press Reload on E-ink at `chrome://extensions`, then reload open tabs. A tab keeps running the old content script and CSS until it reloads, while the popup always loads fresh, so a new popup could write settings an old content script never reads.
-
-**Updating from Gmail E-ink in the same folder** works the same way. In a headless Chrome 156 test with Developer mode on, the reload kept the extension on, with its settings and the new site access, without asking. Chrome's documentation says an update that adds a permission stays off until the user accepts it; that applies to Web Store updates, and if E-ink ever shows as off after a reload, turn it back on there. Keep Developer mode on: with it off, the same test showed Chrome turning the reloaded extension off ("Turn on developer mode to use this extension").
+**After changing any file**, press Reload on E-ink at `chrome://extensions`, then reload open tabs. A tab keeps running the old content script and CSS until it reloads, while the popup always loads fresh, so a new popup could write settings an old content script never reads. Keep Developer mode on: in a headless Chrome 156 test with it off, Chrome turned the reloaded extension off ("Turn on developer mode to use this extension").
 
 Loading a copy from another folder makes a separate extension with its own settings. Switch the other copy off, or a page gets two filters.
 
@@ -145,7 +143,7 @@ npm i --no-save playwright-core && node test/e2e.js
 
 `toggle.test.js` runs `content.js`, `light.js`, `bg.js` and `popup.js` against simulated Chrome APIs, appearance and pages. It covers:
 
-- **Settings**: every combination of mode, palette and appearance; live appearance and setting changes; defaults; invalid or old-format settings; save and load failures; and the popup saving one choice at a time, without a failed older save undoing a newer one.
+- **Settings**: every combination of mode, palette and appearance; live appearance and setting changes; defaults; invalid settings; save and load failures; and the popup saving one choice at a time, without a failed older save undoing a newer one.
 - **The dark-site check**: the grid (including a light page with a dark player at the centre, and colours in `oklch()`), meta and class signals, the PDF skip, the per-site cache, checking again after in-page navigation and page changes (throttled, and not remembered), and putting a stripped attribute back.
 - **Tabs and frames**: each tab deciding for itself, frames following their own top page through `bg.js`, and the This site list.
 - **Light design**: every form of the colour-scheme query and rewriting it twice, nested and imported rules, late rules and media attributes, and the cross-origin copy and its `media`.

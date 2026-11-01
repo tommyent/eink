@@ -18,11 +18,7 @@ async function registerLight() {
 // One registration at a time, in order, so quick changes can't race each other.
 let queue = Promise.resolve();
 const sync = () => (queue = queue.then(registerLight).catch(error => console.error("E-ink could not register light.js", error)));
-chrome.runtime.onInstalled.addListener(() => {
-  sync();
-  // Written by the Gmail-only version; the dark-site answer is now kept per site.
-  chrome.storage.local.remove("gmailDark").catch(() => {});
-});
+chrome.runtime.onInstalled.addListener(sync);
 chrome.runtime.onStartup.addListener(sync);
 chrome.storage.onChanged.addListener((changes, area) => { if (area === "sync" && ("mode" in changes || "off" in changes)) sync(); });
 
