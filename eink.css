@@ -39,13 +39,15 @@ html[data-eink]:not([data-site-dark]) {
   background-color: #fff !important;
 }
 
-/* Invert photos and avatars back wherever the page is inverted, so they read normally.
+/* Invert photos and avatars back wherever the page is inverted, so they read normally: images,
+   video, canvas, and elements drawn with an inline background-image url(), which is how X and
+   other React Native for Web sites draw every photo (with an invisible <img> over it). Nothing
+   inside an element that is already flipped back flips again, such as the <img> of a <picture>.
    Frames get only this rule, because the top page's filter already covers them.
-   Gmail's UI images (cleardot.gif sprites, the wordmark and icons under /icons/mail/) stay inverted with the page,
-   and an <img> inside an inverted <picture> must not flip back again. */
-html[data-eink="dark"]:not([data-site-dark]) :is(img:not([src*="cleardot"], [src*="/icons/mail/"], picture img), video, picture, canvas),
-html[data-eink="warm"][data-site-dark] :is(img:not([src*="cleardot"], [src*="/icons/mail/"], picture img), video, picture, canvas),
-html[data-eink-frame] :is(img:not([src*="cleardot"], [src*="/icons/mail/"], picture img), video, picture, canvas) {
+   Gmail's UI images (cleardot.gif sprites, the wordmark and icons under /icons/mail/) stay inverted with the page. */
+html[data-eink="dark"]:not([data-site-dark]) :is(img, video, picture, canvas, [style*="background"][style*="url("]):not([src*="cleardot"], [src*="/icons/mail/"], [style*="cleardot"], [style*="/icons/mail/"], :is(picture, [style*="background"][style*="url("]) *),
+html[data-eink="warm"][data-site-dark] :is(img, video, picture, canvas, [style*="background"][style*="url("]):not([src*="cleardot"], [src*="/icons/mail/"], [style*="cleardot"], [style*="/icons/mail/"], :is(picture, [style*="background"][style*="url("]) *),
+html[data-eink-frame] :is(img, video, picture, canvas, [style*="background"][style*="url("]):not([src*="cleardot"], [src*="/icons/mail/"], [style*="cleardot"], [style*="/icons/mail/"], :is(picture, [style*="background"][style*="url("]) *) {
   filter: invert(1);
 }
 
