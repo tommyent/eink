@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- E-ink: a lowercase e that inverts across the two palettes, Warm paper on the left and Dark on the right. -->
+  <defs>
+    <clipPath id="tile"><rect x="6" y="6" width="116" height="116" rx="26"/></clipPath>
+    <clipPath id="left"><rect width="64" height="128"/></clipPath>
+    <clipPath id="right"><rect x="64" width="64" height="128"/></clipPath>
+    <clipPath id="bowl"><circle cx="64" cy="64" r="40"/></clipPath>
+    <mask id="e">
+      <circle cx="64" cy="64" r="40" fill="#fff"/>
+      <circle cx="64" cy="64" r="24" fill="#000"/>
+      <rect x="20" y="57" width="88" height="14" fill="#fff" clip-path="url(#bowl)"/>
+      <!-- The opening between the bar and the tail. -->
+      <rect x="64" y="71" width="48" height="11" fill="#000"/>
+    </mask>
+  </defs>
+  <g clip-path="url(#tile)">
+    <rect width="64" height="128" fill="#f3e5cc"/>
+    <rect x="64" width="64" height="128" fill="#262626"/>
+    <rect width="128" height="128" fill="#201e1a" mask="url(#e)" clip-path="url(#left)"/>
+    <rect width="128" height="128" fill="#d6d6d6" mask="url(#e)" clip-path="url(#right)"/>
+  </g>
+  <rect x="6" y="6" width="116" height="116" rx="26" fill="none" stroke="#8c8c8c" stroke-width="2"/>
+</svg>
