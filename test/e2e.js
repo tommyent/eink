@@ -248,7 +248,7 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   const photo = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200"><defs><linearGradient id="g"><stop offset="0" stop-color="#000"/>`
     + `<stop offset="1" stop-color="#fff"/></linearGradient></defs><rect width="300" height="200" fill="url(#g)"/><rect y="80" width="300" height="40" fill="#f0c040"/></svg>`;
   const images = { "/light.svg": svg("#ffffff"), "/dark.svg": svg("#000000"), "/photo.svg": photo };
-  const pages = ["/force.html", "/saved-dark.html", "/plain.html", "/fullscreen.html", "/oklch.html"];
+  const pages = ["/force.html", "/saved-dark.html", "/plain.html", "/fullscreen.html", "/oklch.html", "/theme.html"];
   await context.route("https://sites.test/**", route => {
     const { pathname } = new URL(route.request().url());
     if (images[pathname]) return route.fulfill({ contentType: "image/svg+xml", body: images[pathname] });
@@ -264,6 +264,7 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   await site.emulateMedia({ colorScheme: "dark" });
   const siteFilter = () => site.evaluate(() => getComputedStyle(document.documentElement).filter);
   const siteEink = value => site.waitForFunction(v => document.documentElement.getAttribute("data-eink") === v, value);
+  const siteDarkIs = value => site.waitForFunction(v => document.documentElement.hasAttribute("data-site-dark") === v, value, { timeout: 5000 });
 
   // Six ways a site picks dark mode all give way to its light design, while Auto still sees the Mac's dark mode.
   await site.goto("https://sites.test/force.html");
@@ -322,6 +323,23 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
     assert.equal(await site.evaluate(() => document.documentElement.hasAttribute("data-site-dark")), dark,
       `the ${dark ? "near-black" : "near-white"} OKLCH page ${dark ? "isn't" : "is"} read as dark`);
   }
+
+  // Themes switched with data attributes, on <html> (Bootstrap's data-bs-theme) and on <body>
+  // (GitHub's data-color-mode), also on a <body> swapped in without a reload, as Turbo does.
+  await site.goto("https://sites.test/theme.html");
+  await siteEink("dark");
+  await siteDarkIs(false);
+  // Past the planned check 2.5 s after load, so only each change itself can set off a check.
+  await site.waitForFunction(() => performance.now() > 3500);
+  await site.evaluate(() => { document.documentElement.dataset.bsTheme = "dark"; });
+  await siteDarkIs(true);
+  await site.evaluate(() => { delete document.documentElement.dataset.bsTheme; });
+  await siteDarkIs(false);
+  await site.evaluate(() => document.body.replaceWith(Object.assign(document.createElement("body"), { innerHTML: "<p>The next page.</p>" })));
+  // Let the check that the swap itself sets off go by first.
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  await site.evaluate(() => { document.body.dataset.colorMode = "dark"; });
+  await siteDarkIs(true);
 
   // A page with no background of its own is dark gray under Dark, not white.
   await site.goto("https://sites.test/plain.html");
@@ -413,7 +431,6 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
     const seen = await centre(selector);
     assert.ok(blackAndWhite(look, seen), `${what} under ${look} is ${hex(seen)}, not a ${look === "dark" ? "gray" : "warm gray"} photo`);
   };
-  const siteDarkIs = value => site.waitForFunction(v => document.documentElement.hasAttribute("data-site-dark") === v, value, { timeout: 5000 });
   await choose("palette", "dark");
   await site.goto("https://social.test/");
   await siteEink("dark");

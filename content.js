@@ -149,17 +149,17 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
 });
 if (!isTop) chrome.runtime.sendMessage("eink-top").then(dark => { if (!told && typeof dark === "boolean") decide(dark); }, () => {});
 // Pages paint over time; check once the DOM is in, at load, once more after that, and when the tab comes back.
-document.addEventListener("DOMContentLoaded", () => {
-  detectSiteTheme();
-  if (document.body) observer.observe(document.body, { attributes: true, attributeFilter: ["class", "style"] });
-});
+document.addEventListener("DOMContentLoaded", () => detectSiteTheme());
 addEventListener("load", () => { detectSiteTheme(); setTimeout(() => detectSiteTheme(), 2500); });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) detectSiteTheme(false); });
 // And whenever the page changes itself: in-page navigation (pushState, replaceState, back and
-// forward), the classes and style on <html> and <body> where sites switch their theme, and our
-// own attributes, if the page strips them.
-observer = new MutationObserver(recheck);
-observer.observe(root, { attributes: true, attributeFilter: ["class", "style", "data-eink", "data-site-dark", "data-eink-frame"] });
+// forward), any attribute on <html> or <body>, where sites switch their theme (class, style,
+// data-bs-theme, data-color-mode and others), a new <body> (Turbo swaps one in), and our own
+// attributes, if the page strips them.
+const watchBody = () => { if (document.body) observer.observe(document.body, { attributes: true }); };
+observer = new MutationObserver(() => { watchBody(); recheck(); });
+observer.observe(root, { attributes: true, childList: true });
+watchBody();
 window.navigation?.addEventListener("currententrychange", recheck);
 addEventListener("popstate", recheck);
 

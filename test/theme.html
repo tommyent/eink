@@ -1,0 +1,14 @@
+<!doctype html>
+<!-- A page that switches its theme with data attributes, as Bootstrap does with data-bs-theme on
+     <html> and GitHub with data-color-mode. test/e2e.js also swaps in a new <body>, as Turbo does. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Data-attribute themes</title>
+<style>
+  body { margin: 0; min-height: 100vh; font: 16px system-ui; background: #fff; color: #111; }
+  [data-bs-theme="dark"] body, body[data-color-mode="dark"] { background: #111; color: #eee; }
+</style>
+</head>
+<body><p>A page that switches its theme with data attributes.</p></body>
+</html>
