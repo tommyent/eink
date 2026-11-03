@@ -48,8 +48,8 @@ class OffscreenCanvas {
 // links; fetched: what the extension hands back for a stylesheet light.js can't read; topDark: what
 // a frame's top page answers when the frame asks.
 function content({ night = false, backgrounds = lightPage, pageAt, frame = false, contentType = "text/html", scheme,
-  classes = [], links = [], fetched = "", topDark, theme = {}, ...options } = {}) {
-  const attributes = { ...theme }, events = {}, messages = [], filteredReads = [], dispatched = [], sent = [];
+  classes = [], links = [], fetched = "", topDark, ...options } = {}) {
+  const attributes = {}, events = {}, messages = [], filteredReads = [], dispatched = [], sent = [];
   const timers = [], observers = [], navigation = [];
   const chromeStorage = storage(options), mac = appearance(night);
   const sandbox = {
@@ -67,7 +67,7 @@ function content({ night = false, backgrounds = lightPage, pageAt, frame = false
       elementFromPoint: (x, y) => pageAt ? pageAt(x, y) : chain(backgrounds),
       querySelector: selector => selector.startsWith("meta") && scheme ? { content: scheme } : null,
       querySelectorAll: () => links,
-      body: { classList: { contains: name => classes.includes(name) }, getAttribute: () => null },
+      body: { classList: { contains: name => classes.includes(name) } },
       documentElement: {
         classList: { contains: () => false }, getAttribute: name => attributes[name] ?? null,
         setAttribute(name, value) { attributes[name] = value; }, removeAttribute(name) { delete attributes[name]; },
@@ -81,8 +81,6 @@ function content({ night = false, backgrounds = lightPage, pageAt, frame = false
   sandbox.window.top = frame ? {} : sandbox;
   vm.runInNewContext(fs.readFileSync(`${__dirname}/content.js`, "utf8"), sandbox);
   return { palette: () => attributes["data-eink"] ?? "off", siteDark: () => "data-site-dark" in attributes,
-    theme: () => attributes["data-color-mode"],
-    setTheme: value => { attributes["data-color-mode"] = value; observers[0].callback([]); },
     flipsBack: () => "data-eink-frame" in attributes, filteredReads, sent,
     ping: () => new Promise(resolve => messages[0]("eink-ping", {}, resolve)),
     answersPing: () => { let answered = false; messages.forEach(listener => listener("eink-ping", {}, () => { answered = true; })); return answered; },
@@ -312,29 +310,6 @@ test("an in-page route change or theme switch makes the page check again, withou
   s.location.href = "https://example.com/status/1/photo/1";
   s.load(); await settled();
   assert.deepEqual(s.localWrites, [{ "dark:example.com:dark": false }]);
-});
-
-test("an explicit theme with a declared light design is restored on off, and site changes win", async () => {
-  const theme = { "data-color-mode": "dark", "data-light-theme": "light" };
-  const s = content({ night: true, theme }); await settled();
-  assert.equal(s.theme(), "light");
-  s.change({ off: { newValue: ["example.com"] } });
-  assert.equal(s.theme(), "dark");
-  s.change({ off: { newValue: [] } });
-  assert.equal(s.theme(), "light");
-  s.setTheme("auto"); s.tick();
-  assert.equal(s.theme(), "auto", "a site's new choice is not overwritten");
-  s.change({ mode: { newValue: "off" } });
-  assert.equal(s.theme(), "auto", "off does not restore an obsolete choice");
-  s.setTheme("dark");
-  s.change({ mode: { newValue: "on" } });
-  assert.equal(s.theme(), "light");
-  s.setTheme("dark"); s.tick(); s.tick();
-  assert.equal(s.theme(), "dark", "a site that insists on dark is left alone");
-  s.change({ palette: { newValue: "warm" } });
-  assert.equal(s.theme(), "dark", "changing palettes does not restart the fight");
-  const noLight = content({ night: true, theme: { "data-color-mode": "dark" } }); await settled();
-  assert.equal(noLight.theme(), "dark", "no light theme is guessed");
 });
 
 test("our attributes come back if the page strips them, and our own writes don't set off a check", async () => {

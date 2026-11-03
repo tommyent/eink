@@ -84,8 +84,6 @@ That is the only network request E-ink makes.
 
 ### Sites that are dark anyway
 
-When a page declares `data-color-mode="dark"` and a `data-light-theme` on `<html>` or `<body>` (as GitHub does), `content.js` selects its light design while E-ink is active. Both palettes then use the usual light-page filters. Switching E-ink off restores the original attribute. If the site changes the attribute again, E-ink leaves its choice alone until the next activation, so the two scripts don't fight.
-
 A dark theme saved on the site itself would turn light under the plain filters. So `content.js` checks the page at DOMContentLoaded, at load and 2.5 s later for:
 
 - a `<meta name="color-scheme">` of `dark`;
@@ -127,8 +125,8 @@ Chrome doesn't let extensions change its own pages (`chrome://` settings, extens
 
 ## Known limits
 
-- **A dark theme saved on the site itself** without a declared light design (such as Gmail's own dark theme), or a site that overrides E-ink's theme selection, uses the dark-site fallback: Dark is grayscale only, close to the site's own black, and Warm is paper. Setting the site's own appearance to "system" or "device" lets the light design come through.
-- **Switching off** (This site, or E-ink Off) removes the filter and restores theme attributes E-ink changed. Colour-scheme queries and stylesheets already rewritten by `light.js` keep their light design until the page reloads.
+- **A dark theme saved on the site itself** (an account setting such as YouTube's or Gmail's own dark theme, or a theme picked on the site and kept in its storage) can't be forced light. The dark-site check then gives Dark as grayscale only, close to the site's own black, and Warm as paper. Setting the site's own appearance to "system" or "device" lets the light design come through.
+- **Switching off** (This site, or E-ink Off) removes the filter at once, but a page already open keeps its light design until it reloads, and then shows its own dark mode again.
 - **Frames from another site inside a site switched off** still get the light design, because `light.js` goes by each frame's own host.
 - **Shadow DOM**: photos inside shadow roots stay inverted, because page CSS doesn't reach into them, and styles in declarative shadow DOM (`<template shadowrootmode>`) aren't rewritten to light.
 - **Server-chosen themes**: a site that picks its theme on the server from the `Sec-CH-Prefers-Color-Scheme` request header stays dark and falls back to the dark-site check.
@@ -172,7 +170,6 @@ On a Gmail-like inbox (`test/fixture.html`, served at a `mail.google.com` URL, p
 On small pages served at `sites.test`, in dark mode, it checks that:
 
 - six ways of picking dark mode (`test/force.html`, with a stylesheet from another origin, `test/force-x.css`) all show the light design while Auto still turns on;
-- an explicit account dark theme with a declared light design (`test/github-theme.html`) matches that light design's pixels under both palettes, survives a Turbo body swap, restores the account theme when switched off, and yields to a site's own theme changes without a loop;
 - This site turns a page off and on live and keeps `light.js` off it, also on an IPv6 address and a host name with an underscore;
 - `chrome://version` disables This site;
 - a saved dark theme (`test/saved-dark.html`) falls back to grayscale only;
