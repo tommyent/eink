@@ -173,7 +173,7 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
     "https://mail.google.com/mail/images/cleardot.gif", "https://example.com/photo.jpg"].map(src => {
     const img = document.body.appendChild(Object.assign(document.createElement("img"), { src }));
     const value = getComputedStyle(img).filter; img.remove(); return value;
-  })), ["none", "none", "invert(1)"]);
+  })), ["none", "none", "brightness(0.8) invert(1)"]);
   await checkGmail("auto-night-dark", "dark");
   await popup.focus("input[name=palette]:checked");
   await checkPopup("night-dark");
@@ -305,8 +305,9 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
     console.log(`picture ${look} pixels: ${colours.map(hex).join(" / ")}`);
     assert.deepEqual(colours[1], colours[0], "picture image has the same tones as the plain image");
     assert.deepEqual(colours[2], colours[0], "picture inside a filtered background is not inverted twice");
-    assert.ok(colours[0][0] > 150, "the yellow product photo is bright grey, not its dark negative");
-    assert.equal(await site.locator("#picture img").evaluate(el => getComputedStyle(el).filter), "invert(1)");
+    const expected = look === "dark" ? [146, 146, 146] : [204, 192, 171];
+    assert.ok(colours[0].every((v, i) => Math.abs(v - expected[i]) <= 2), "Dark dims the product photo; Warm keeps its existing tones");
+    assert.equal(await site.locator("#picture img").evaluate(el => getComputedStyle(el).filter), look === "dark" ? "brightness(0.8) invert(1)" : "invert(1)");
     assert.equal(await site.locator("#picture picture").evaluate(el => getComputedStyle(el).filter), "none");
     assert.equal(await site.locator("#background img").evaluate(el => getComputedStyle(el).filter), "none");
     const frame = await (await site.waitForSelector("#frame")).contentFrame();
@@ -524,6 +525,12 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
     // Points along the ramp, above the band, in the page's photo.
     const box = await site.locator("#stage img").boundingBox();
     const inPage = await levels(ramp.map(f => [box.x + f * box.width, box.y + 0.25 * box.height]));
+    const inPageBand = await pixel(site, box.x + box.width / 2, box.y + box.height / 2);
+    if (look === "dark" && !darkPage) {
+      const ends = await levels([1, box.width - 2].map(x => [box.x + x, box.y + 0.25 * box.height]));
+      for (const [i, expected] of [38, 181].entries())
+        assert.ok(ends[i].every(v => Math.abs(v - expected) <= 3), `Dark photo endpoint ${ends[i]} should be ${expected}`);
+    }
     for (const [id, shot, name, enter] of ways) {
       await enter();
       await site.waitForFunction(id => id === "root" ? document.fullscreenElement === document.documentElement : document.fullscreenElement?.id === id, id);
@@ -532,6 +539,7 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
       const seen = await pixel(site, ...(id === "root" ? [Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2)] : [640, 400]));
       if (id === "root") assert.equal(await siteFilter(), pageFilters[where]);
       assert.ok(blackAndWhite(look, seen), `${name} in fullscreen under ${where} is ${hex(seen)}, not black and white`);
+      assert.ok(seen.every((v, i) => Math.abs(v - inPageBand[i]) <= 3), `${name}: ${hex(seen)} matches the inline photo tone ${hex(inPageBand)}`);
       if (id === "stage") {
         // The player shows the photo with object-fit: cover, across the full width and cropped top and bottom.
         const scale = Math.max(1280 / 300, 800 / 200), top = (800 - 200 * scale) / 2;
@@ -548,7 +556,7 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
     await new Promise(resolve => setTimeout(resolve, 300));
     assert.deepEqual(await pixel(site, 1270, 790), page, `the page under ${where} looks as before after fullscreen`);
     // Photos flip back wherever the page is inverted: Dark on a light page, Warm on a dark one.
-    assert.equal(await site.evaluate(() => getComputedStyle(document.querySelector("#stage img")).filter), (look === "dark") !== darkPage ? "invert(1)" : "none");
+    assert.equal(await site.evaluate(() => getComputedStyle(document.querySelector("#stage img")).filter), (look === "dark") !== darkPage ? (look === "dark" ? "brightness(0.8) invert(1)" : "invert(1)") : "none");
   }
 
   // A page built like X (test/social.html): photos drawn as CSS backgrounds, a photo viewer opened

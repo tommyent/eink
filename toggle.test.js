@@ -97,7 +97,7 @@ function content({ night = false, backgrounds = lightPage, pageAt, frame = false
   if (invalid) { delete sandbox.chrome.runtime; delete sandbox.chrome.storage; }
   vm.runInNewContext(fs.readFileSync(`${__dirname}/content.js`, "utf8"), sandbox);
   return { palette: () => attributes["data-eink"] ?? "off", siteDark: () => "data-site-dark" in attributes,
-    flipsBack: () => "data-eink-frame" in attributes, filteredReads, sent,
+    flipsBack: () => "data-eink-frame" in attributes, framePalette: () => attributes["data-eink-frame"], filteredReads, sent,
     ping: () => new Promise(resolve => messages[0]("eink-ping", {}, resolve)),
     answersPing: () => { let answered = false; messages.forEach(listener => listener("eink-ping", {}, () => { answered = true; })); return answered; },
     // bg.js passing on the top page's answer to every frame in the tab.
@@ -337,6 +337,7 @@ test("the answer is remembered per site and appearance, and written only when it
 test("a frame never gets the page filter, and flips photos back only inside an inverted page", async () => {
   const dark = content({ frame: true, night: true }); await settled();
   assert.equal(dark.palette(), "off"); assert.equal(dark.flipsBack(), true);
+  assert.equal(dark.framePalette(), "dark");
   dark.change({ palette: { newValue: "warm" } }); assert.equal(dark.flipsBack(), false, "Warm doesn't invert a light page");
   dark.change({ palette: { newValue: "dark" } }); assert.equal(dark.flipsBack(), true);
   dark.setNight(false); assert.equal(dark.flipsBack(), false, "Auto by day: the page isn't filtered");
@@ -344,6 +345,7 @@ test("a frame never gets the page filter, and flips photos back only inside an i
   const inDark = content({ frame: true, night: true, topDark: true }); await settled();
   assert.equal(inDark.flipsBack(), false);
   inDark.change({ palette: { newValue: "warm" } }); assert.equal(inDark.flipsBack(), true);
+  assert.equal(inDark.framePalette(), "warm");
   // The top page's answer reaches its frames live.
   const live = content({ frame: true, night: true }); await settled();
   live.told(true); assert.equal(live.flipsBack(), false);

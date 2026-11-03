@@ -15,10 +15,10 @@ html[data-eink="warm"] {
 }
 
 /* Dark e-ink: inverted to a dark-gray page with soft light-gray text. A photo is flipped back
-   first, and invert(1) followed by invert(0.85) is contrast(0.7): gray, a little dimmed. */
+   first after dimming: photo output is 0.15 + 0.7 * 0.8 * input, from 15% black to 71% white. */
 html[data-eink="dark"] {
   --eink-page: invert(0.85) grayscale(1);
-  --eink-photo: grayscale(1) contrast(0.7);
+  --eink-photo: grayscale(1) brightness(0.8) contrast(0.7);
   filter: var(--eink-page);
 }
 
@@ -45,8 +45,12 @@ html[data-eink]:not([data-site-dark]) {
    page's filter already covers them. Gmail's UI images (cleardot.gif sprites, the wordmark and icons under /icons/mail/)
    stay inverted with the page. */
 html[data-eink="dark"]:not([data-site-dark]) :is(img, video, canvas):not([src*="cleardot"], [src*="/icons/mail/"], [style*="background"][style*="url("] *),
+html[data-eink-frame="dark"] :is(img, video, canvas):not([src*="cleardot"], [src*="/icons/mail/"], [style*="background"][style*="url("] *) {
+  filter: brightness(0.8) invert(1);
+}
+
 html[data-eink="warm"][data-site-dark] :is(img, video, canvas):not([src*="cleardot"], [src*="/icons/mail/"], [style*="background"][style*="url("] *),
-html[data-eink-frame] :is(img, video, canvas):not([src*="cleardot"], [src*="/icons/mail/"], [style*="background"][style*="url("] *) {
+html[data-eink-frame="warm"] :is(img, video, canvas):not([src*="cleardot"], [src*="/icons/mail/"], [style*="background"][style*="url("] *) {
   filter: invert(1);
 }
 
@@ -56,8 +60,12 @@ html[data-eink-frame] :is(img, video, canvas):not([src*="cleardot"], [src*="/ico
    which would win over this rule, hence !important. On the top page, fullscreen content is left
    to the fullscreen rules below, which this would otherwise override. */
 html[data-eink="dark"]:not([data-site-dark]) [style*="background"][style*="url("]:not([style*="cleardot"], [style*="/icons/mail/"], [style*="background"][style*="url("] *, :fullscreen, :fullscreen *),
+html[data-eink-frame="dark"] [style*="background"][style*="url("]:not([style*="cleardot"], [style*="/icons/mail/"], [style*="background"][style*="url("] *) {
+  filter: brightness(0.8) invert(1) !important;
+}
+
 html[data-eink="warm"][data-site-dark] [style*="background"][style*="url("]:not([style*="cleardot"], [style*="/icons/mail/"], [style*="background"][style*="url("] *, :fullscreen, :fullscreen *),
-html[data-eink-frame] [style*="background"][style*="url("]:not([style*="cleardot"], [style*="/icons/mail/"], [style*="background"][style*="url("] *) {
+html[data-eink-frame="warm"] [style*="background"][style*="url("]:not([style*="cleardot"], [style*="/icons/mail/"], [style*="background"][style*="url("] *) {
   filter: invert(1) !important;
 }
 
@@ -80,7 +88,11 @@ html[data-eink] iframe:fullscreen {
 
 /* A frame inside a fullscreen player, where the page is inverted: invert(1) under the player's
    filter adds up to the page's filter, which is what the frame's content expects. */
-html[data-eink="dark"]:not([data-site-dark]) :fullscreen iframe,
 html[data-eink="warm"][data-site-dark] :fullscreen iframe {
   filter: invert(1) !important;
+}
+
+/* Cancel the frame's photo flip and dimming before the fullscreen player's photo filter. */
+html[data-eink="dark"]:not([data-site-dark]) :fullscreen iframe {
+  filter: invert(1) brightness(1.25) !important;
 }

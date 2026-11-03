@@ -55,7 +55,8 @@ function apply(values = {}) {
   quietly(() => {
     if (!isTop) {
       // Dark inverts a light page, Warm inverts a dark one.
-      root.toggleAttribute("data-eink-frame", active && (palette === "dark") !== siteDark);
+      if (active && (palette === "dark") !== siteDark) root.setAttribute("data-eink-frame", palette);
+      else root.removeAttribute("data-eink-frame");
       return;
     }
     if (!active) root.removeAttribute("data-eink");
