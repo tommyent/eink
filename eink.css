@@ -40,13 +40,13 @@ html[data-eink]:not([data-site-dark]) {
 }
 
 /* Invert photos and avatars back wherever the page is inverted, so they read normally: images,
-   video and canvas. Nothing inside an element that is already flipped back flips again, such as
-   the <img> of a <picture>. Frames get only these rules, because the top page's filter already
-   covers them. Gmail's UI images (cleardot.gif sprites, the wordmark and icons under /icons/mail/)
+   video and canvas. Filter the img, not its picture wrapper, which can change absolute positioning.
+   Nothing inside a flipped background flips again. Frames get only these rules, because the top
+   page's filter already covers them. Gmail's UI images (cleardot.gif sprites, the wordmark and icons under /icons/mail/)
    stay inverted with the page. */
-html[data-eink="dark"]:not([data-site-dark]) :is(img, video, picture, canvas):not([src*="cleardot"], [src*="/icons/mail/"], :is(picture, [style*="background"][style*="url("]) *),
-html[data-eink="warm"][data-site-dark] :is(img, video, picture, canvas):not([src*="cleardot"], [src*="/icons/mail/"], :is(picture, [style*="background"][style*="url("]) *),
-html[data-eink-frame] :is(img, video, picture, canvas):not([src*="cleardot"], [src*="/icons/mail/"], :is(picture, [style*="background"][style*="url("]) *) {
+html[data-eink="dark"]:not([data-site-dark]) :is(img, video, canvas):not([src*="cleardot"], [src*="/icons/mail/"], [style*="background"][style*="url("] *),
+html[data-eink="warm"][data-site-dark] :is(img, video, canvas):not([src*="cleardot"], [src*="/icons/mail/"], [style*="background"][style*="url("] *),
+html[data-eink-frame] :is(img, video, canvas):not([src*="cleardot"], [src*="/icons/mail/"], [style*="background"][style*="url("] *) {
   filter: invert(1);
 }
 
@@ -55,9 +55,9 @@ html[data-eink-frame] :is(img, video, picture, canvas):not([src*="cleardot"], [s
    it. The same inline style sets a filter of its own (X writes filter: brightness(1) on each one),
    which would win over this rule, hence !important. On the top page, fullscreen content is left
    to the fullscreen rules below, which this would otherwise override. */
-html[data-eink="dark"]:not([data-site-dark]) [style*="background"][style*="url("]:not([style*="cleardot"], [style*="/icons/mail/"], :is(picture, [style*="background"][style*="url("]) *, :fullscreen, :fullscreen *),
-html[data-eink="warm"][data-site-dark] [style*="background"][style*="url("]:not([style*="cleardot"], [style*="/icons/mail/"], :is(picture, [style*="background"][style*="url("]) *, :fullscreen, :fullscreen *),
-html[data-eink-frame] [style*="background"][style*="url("]:not([style*="cleardot"], [style*="/icons/mail/"], :is(picture, [style*="background"][style*="url("]) *) {
+html[data-eink="dark"]:not([data-site-dark]) [style*="background"][style*="url("]:not([style*="cleardot"], [style*="/icons/mail/"], [style*="background"][style*="url("] *, :fullscreen, :fullscreen *),
+html[data-eink="warm"][data-site-dark] [style*="background"][style*="url("]:not([style*="cleardot"], [style*="/icons/mail/"], [style*="background"][style*="url("] *, :fullscreen, :fullscreen *),
+html[data-eink-frame] [style*="background"][style*="url("]:not([style*="cleardot"], [style*="/icons/mail/"], [style*="background"][style*="url("] *) {
   filter: invert(1) !important;
 }
 

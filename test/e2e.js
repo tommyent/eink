@@ -247,8 +247,9 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   // The photo is a black-to-white ramp with a #f0c040 band across the middle.
   const photo = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200"><defs><linearGradient id="g"><stop offset="0" stop-color="#000"/>`
     + `<stop offset="1" stop-color="#fff"/></linearGradient></defs><rect width="300" height="200" fill="url(#g)"/><rect y="80" width="300" height="40" fill="#f0c040"/></svg>`;
-  const images = { "/light.svg": svg("#ffffff"), "/dark.svg": svg("#000000"), "/photo.svg": photo };
-  const pages = ["/force.html", "/saved-dark.html", "/plain.html", "/fullscreen.html", "/oklch.html", "/theme.html", "/auto-theme.html", "/account-theme.html"];
+  const images = { "/light.svg": svg("#ffffff"), "/dark.svg": svg("#000000"), "/photo.svg": photo,
+    "/product.svg": '<svg xmlns="http://www.w3.org/2000/svg" width="226" height="226"><rect width="226" height="226" fill="#f0c040"/></svg>' };
+  const pages = ["/force.html", "/saved-dark.html", "/plain.html", "/fullscreen.html", "/oklch.html", "/theme.html", "/auto-theme.html", "/account-theme.html", "/picture.html"];
   await context.route("https://sites.test/**", route => {
     const { pathname } = new URL(route.request().url());
     if (["/account-dark.css", "/account-light.css"].includes(pathname)) return route.fulfill({ contentType: "text/css", body: fs.readFileSync(path.join(__dirname, pathname), "utf8") });
@@ -282,6 +283,43 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   const siteFilter = () => site.evaluate(() => getComputedStyle(document.documentElement).filter);
   const siteEink = value => site.waitForFunction(v => document.documentElement.getAttribute("data-eink") === v, value);
   const siteDarkIs = value => site.waitForFunction(v => document.documentElement.hasAttribute("data-site-dark") === v, value, { timeout: 5000 });
+
+  // Filtering an inline picture must not become the containing block of its absolute image.
+  for (const look of ["dark", "warm"]) {
+    await choose("palette", look);
+    await site.goto(`https://sites.test/picture.html${look === "warm" ? "?dark" : ""}`);
+    await siteEink(look);
+    await siteDarkIs(look === "warm");
+    await site.waitForFunction(() => [...document.images].every(img => img.complete && img.naturalWidth));
+    const sizes = await site.evaluate(() => [...document.querySelectorAll(".tile")].map(tile => {
+      const image = tile.querySelector("img").getBoundingClientRect(), box = tile.getBoundingClientRect();
+      return { id: tile.id, image: [image.width, image.height], container: [box.width, box.height] };
+    }));
+    console.log(`picture ${look} sizes: ${JSON.stringify(sizes)}`);
+    for (const { id, image, container } of sizes) assert.deepEqual(image, container, `${id} image fills its containing block under ${look}`);
+    const colours = [];
+    for (const id of ["plain", "picture", "background"]) {
+      const box = await site.locator(`#${id}`).boundingBox();
+      colours.push(await pixel(site, Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2)));
+    }
+    console.log(`picture ${look} pixels: ${colours.map(hex).join(" / ")}`);
+    assert.deepEqual(colours[1], colours[0], "picture image has the same tones as the plain image");
+    assert.deepEqual(colours[2], colours[0], "picture inside a filtered background is not inverted twice");
+    assert.ok(colours[0][0] > 150, "the yellow product photo is bright grey, not its dark negative");
+    assert.equal(await site.locator("#picture img").evaluate(el => getComputedStyle(el).filter), "invert(1)");
+    assert.equal(await site.locator("#picture picture").evaluate(el => getComputedStyle(el).filter), "none");
+    assert.equal(await site.locator("#background img").evaluate(el => getComputedStyle(el).filter), "none");
+    const frame = await (await site.waitForSelector("#frame")).contentFrame();
+    await frame.waitForFunction(() => document.documentElement.hasAttribute("data-eink-frame") && [...document.images].every(img => img.complete && img.naturalWidth));
+    for (const id of ["plain", "picture", "background"]) {
+      const box = await frame.locator(`#${id} img`).boundingBox();
+      assert.deepEqual([box.width, box.height], [191, 191], `framed ${id} keeps its size`);
+      assert.deepEqual(await pixel(site, Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2)), colours[0],
+        `framed ${id} is flipped exactly once`);
+    }
+    await site.screenshot({ path: path.join(shots, `picture-${look}.png`) });
+  }
+  await choose("palette", "dark");
 
   // Six ways a site picks dark mode all give way to its light design, while Auto still sees the Mac's dark mode.
   await site.goto("https://sites.test/force.html");

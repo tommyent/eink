@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Absolutely positioned picture images</title>
+<style>
+  body { margin: 0; background: white; }
+  body.dark { background: #111; }
+  .tile { position: relative; width: 191px; height: 191px; display: inline-block; }
+  .tile img { position: absolute; inset: 0; margin: auto; max-width: 100%; max-height: 100%; }
+</style>
+</head>
+<body>
+<div class="tile" id="plain"><img src="/product.svg"></div>
+<div class="tile" id="picture"><picture><source srcset="/product.svg" type="image/svg+xml"><img src="/product.svg"></picture></div>
+<div class="tile" id="background" style="background-image: url('/product.svg'); background-size: cover"><picture><img src="/product.svg"></picture></div>
+<script>
+  if (location.search === "?dark") document.body.classList.add("dark");
+  if (location.search !== "?frame") {
+    const frame = document.createElement("iframe");
+    frame.id = "frame";
+    frame.src = "/picture.html?frame";
+    frame.style = "display: block; width: 800px; height: 200px; border: 0";
+    document.body.append(frame);
+  }
+</script>
+</body>
+</html>
