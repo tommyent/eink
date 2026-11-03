@@ -595,6 +595,42 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   })), 0, "nothing rewrites <html> while the page is idle");
   assert.ok(await lightRegistered(), "light.js stays registered in Auto");
 
+  // Reload only this isolated test extension, then wake its old scripts in the still-open page.
+  const client = await context.newCDPSession(site), worlds = [], orphanErrors = [];
+  client.on("Runtime.executionContextCreated", ({ context }) => worlds.push(context));
+  client.on("Runtime.exceptionThrown", ({ exceptionDetails }) => orphanErrors.push(exceptionDetails.exception?.description || exceptionDetails.text));
+  await client.send("Runtime.enable");
+  let extensionWorld;
+  for (const world of worlds) {
+    const { result } = await client.send("Runtime.evaluate", { contextId: world.id,
+      expression: `typeof chrome !== 'undefined' && chrome.runtime?.id === ${JSON.stringify(id)}` });
+    if (result.value) extensionWorld = world.id;
+  }
+  assert.ok(extensionWorld, "the content script's isolated world exists before reload");
+  await site.evaluate(() => window.dispatchEvent(new Event("load")));
+  await popup.evaluate(() => { setTimeout(() => chrome.runtime.reload(), 0); });
+  let invalid = false;
+  for (let i = 0; i < 50; i++) {
+    const { result } = await client.send("Runtime.evaluate", { contextId: extensionWorld, expression: "chrome.runtime?.id" });
+    if (result.type === "undefined") { invalid = true; break; }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assert.ok(invalid, "reload invalidates the old extension context");
+  await site.evaluate(() => {
+    document.body.style.backgroundColor = "white";
+    window.dispatchEvent(new Event("popstate"));
+    document.dispatchEvent(new Event("visibilitychange"));
+    document.dispatchEvent(new CustomEvent("eink-light-fetch", { detail: JSON.stringify({ id: 99, url: location.href }) }));
+  });
+  await site.emulateMedia({ colorScheme: "light" });
+  await site.emulateMedia({ colorScheme: "dark" });
+  await site.evaluate(() => document.documentElement.removeAttribute("data-eink"));
+  await new Promise(resolve => setTimeout(resolve, 2800));
+  if (orphanErrors.length) console.log(`extension reload errors: ${JSON.stringify(orphanErrors)}`);
+  assert.deepEqual(orphanErrors, [], "an invalidated content script reports no uncaught exceptions");
+  assert.equal(await site.getAttribute("html", "data-eink"), null, "an orphan does not restore attributes after cleanup");
+  console.log("extension reload: invalid context, no errors or attribute rewrites");
+
   await browser.close();
   proc.kill();
   console.log(`ok: screenshots in ${shots}`);

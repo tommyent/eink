@@ -1,6 +1,27 @@
 // eink.css is always injected but only applies while <html> carries data-eink="warm|dark" (the top
 // page) or data-eink-frame (a frame inside an inverted page).
 // off: the sites the popup's This site switch turned off, by host name.
+(() => {
+if (!chrome.runtime?.id) return;
+const controller = new AbortController();
+const { signal } = controller;
+const storageChanges = chrome.storage.onChanged, messages = chrome.runtime.onMessage;
+let stopped = false, observer = null, pending = 0, loadedCheck = 0;
+function alive() {
+  if (stopped) return false;
+  if (chrome.runtime?.id) return true;
+  stopped = true;
+  observer?.disconnect();
+  controller.abort();
+  clearTimeout(pending);
+  clearTimeout(loadedCheck);
+  // Chrome can reject listener removal after reload, even through the saved event objects.
+  for (const [event, listener] of [[storageChanges, onStorage], [messages, onMessage]]) {
+    try { event.removeListener(listener); } catch {}
+  }
+  return false;
+}
+
 const defaults = { mode: "auto", palette: "dark", off: [] };
 const settings = { ...defaults };
 const night = matchMedia("(prefers-color-scheme: dark)");
@@ -18,14 +39,14 @@ const site = isTop ? location.hostname : hostOf(ancestors[ancestors.length - 1])
 let siteDark = false;
 const darkKey = () => `dark:${site}:${night.matches ? "dark" : "light"}`;
 const cache = {}, reads = {}, checked = new Set();
-const readCache = key => reads[key] ??= chrome.storage.local.get(key).then(values => { cache[key] = values[key]; }, () => {});
+const readCache = key => reads[key] ??= chrome.storage.local.get(key).then(values => { if (alive()) cache[key] = values[key]; }, () => {});
 
 // The page's own changes to <html> and <body> make us check again (below). Our own writes go
 // through here, which drops the records they leave, so they can't set that off.
-let observer = null;
 const quietly = write => { write(); observer?.takeRecords(); };
 
 function apply(values = {}) {
+  if (!alive()) return;
   for (const key in defaults) if (key in values) settings[key] = values[key] ?? defaults[key];
   // Auto: e-ink only while the Mac is in dark mode; macOS Auto flips that at sunset.
   const off = Array.isArray(settings.off) ? settings.off : [];
@@ -45,18 +66,19 @@ function apply(values = {}) {
 
 // A top page tells its frames whenever its answer changes; bg.js passes it to every frame in the tab.
 function decide(dark) {
+  if (!alive()) return;
   const changed = dark !== siteDark;
   siteDark = dark;
   apply();
-  if (changed && isTop) chrome.runtime.sendMessage({ siteDark }).catch(() => {});
+  if (changed && isTop) chrome.runtime.sendMessage({ siteDark }).catch(alive);
 }
 
 // A top page starts from the remembered answer, unless it has already checked for itself.
 function recall() {
-  if (!isTop) return;
+  if (!alive() || !isTop) return;
   const key = darkKey();
   readCache(key).then(() => {
-    if (key !== darkKey() || checked.has(key) || typeof cache[key] !== "boolean") return;
+    if (!alive() || key !== darkKey() || checked.has(key) || typeof cache[key] !== "boolean") return;
     decide(cache[key]);
   });
 }
@@ -100,7 +122,7 @@ function pageIsDark() {
 const loadedAt = location.href;
 function detectSiteTheme(remember = true) {
   // Chrome's PDF viewer is dark around a white page: invert it like any light page.
-  if (!isTop || document.contentType === "application/pdf") return;
+  if (!alive() || !isTop || document.contentType === "application/pdf") return;
   // Read the page's own colours: our white canvas and filters all key off data-eink.
   const palette = root.getAttribute("data-eink");
   let dark;
@@ -113,17 +135,16 @@ function detectSiteTheme(remember = true) {
   decide(dark);
   if (!remember || location.href !== loadedAt) return;
   readCache(key).then(() => {
-    if (cache[key] === dark) return;
+    if (!alive() || cache[key] === dark) return;
     cache[key] = dark;
-    chrome.storage.local.set({ [key]: dark }).catch(() => {});
+    chrome.storage.local.set({ [key]: dark }).catch(alive);
   });
 }
 
 // Single-page apps such as X change routes and switch their own theme without reloading, and may
 // rewrite <html>'s attributes: check again shortly after, at most every half second.
-let pending = 0;
 function recheck() {
-  if (pending) return;
+  if (!alive() || pending) return;
   pending = setTimeout(() => {
     pending = 0;
     if (document.readyState !== "loading") detectSiteTheme(false);
@@ -134,34 +155,43 @@ function recheck() {
 chrome.storage.sync.get(Object.keys(defaults)).then(apply, () => apply());
 recall();
 // Another tab's answer never reaches this one: each tab of a site may be on a different view.
-chrome.storage.onChanged.addListener((changes, area) => {
+function onStorage(changes, area) {
+  if (!alive()) return;
   if (area === "sync") apply(Object.fromEntries(Object.entries(changes).map(([key, { newValue }]) => [key, newValue])));
-});
-night.addEventListener("change", () => { apply(); recall(); });
+}
+storageChanges.addListener(onStorage);
+night.addEventListener("change", () => { apply(); recall(); }, { signal });
 // The popup asks the top page which site it is and whether it is dark anyway; so does bg.js for a
 // frame. Chrome's own pages don't answer, because extensions can't run there. A frame starts from
 // its top page's answer and then follows what the top page tells it; an answer to its question
 // that comes after a newer one from the top page is dropped.
 let told = false;
-chrome.runtime.onMessage.addListener((message, sender, reply) => {
+function onMessage(message, sender, reply) {
+  if (!alive()) return;
   if (isTop && message === "eink-ping") reply({ site, siteDark });
   if (!isTop && typeof message?.siteDark === "boolean") { told = true; decide(message.siteDark); }
-});
-if (!isTop) chrome.runtime.sendMessage("eink-top").then(dark => { if (!told && typeof dark === "boolean") decide(dark); }, () => {});
+}
+messages.addListener(onMessage);
+if (!isTop) chrome.runtime.sendMessage("eink-top").then(dark => { if (alive() && !told && typeof dark === "boolean") decide(dark); }, alive);
 // Pages paint over time; check once the DOM is in, at load, once more after that, and when the tab comes back.
-document.addEventListener("DOMContentLoaded", () => detectSiteTheme());
-addEventListener("load", () => { detectSiteTheme(); setTimeout(() => detectSiteTheme(), 2500); });
-document.addEventListener("visibilitychange", () => { if (!document.hidden) detectSiteTheme(false); });
+document.addEventListener("DOMContentLoaded", () => detectSiteTheme(), { signal });
+addEventListener("load", () => {
+  if (!alive()) return;
+  detectSiteTheme();
+  clearTimeout(loadedCheck);
+  loadedCheck = setTimeout(() => detectSiteTheme(), 2500);
+}, { signal });
+document.addEventListener("visibilitychange", () => { if (!alive() || document.hidden) return; detectSiteTheme(false); }, { signal });
 // And whenever the page changes itself: in-page navigation (pushState, replaceState, back and
 // forward), any attribute on <html> or <body>, where sites switch their theme (class, style,
 // data-bs-theme, data-color-mode and others), a new <body> (Turbo swaps one in), and our own
 // attributes, if the page strips them.
 const watchBody = () => { if (document.body) observer.observe(document.body, { attributes: true }); };
-observer = new MutationObserver(() => { watchBody(); recheck(); });
+observer = new MutationObserver(() => { if (!alive()) return; watchBody(); recheck(); });
 observer.observe(root, { attributes: true, childList: true });
 watchBody();
-window.navigation?.addEventListener("currententrychange", recheck);
-addEventListener("popstate", recheck);
+window.navigation?.addEventListener("currententrychange", recheck, { signal });
+addEventListener("popstate", recheck, { signal });
 
 // light.js runs in the page's own world and can't reach the extension, so it asks here for the
 // cross-origin stylesheets it can't read. Trust boundary: the page can send this event too, so
@@ -169,15 +199,18 @@ addEventListener("popstate", recheck);
 let relayed = 0;
 const unreadable = sheet => { if (!sheet) return false; try { sheet.cssRules; return false; } catch { return true; } };
 document.addEventListener("eink-light-fetch", event => {
+  if (!alive()) return;
   let id, url;
   try { ({ id, url } = JSON.parse(event.detail)); } catch { return; }
-  const answer = text => document.dispatchEvent(new CustomEvent("eink-light-css", { detail: JSON.stringify({ id, text }) }));
+  const answer = text => { if (alive()) document.dispatchEvent(new CustomEvent("eink-light-css", { detail: JSON.stringify({ id, text }) })); };
   const link = [...document.querySelectorAll("link[rel~=stylesheet i]")].find(link => link.href === url);
   if (!link || !unreadable(link.sheet) || relayed++ >= 20) return answer("");
   chrome.runtime.sendMessage({ fetchCSS: url }).then(text => {
+    if (!alive()) return;
     answer(typeof text === "string" ? text : "");
     // light.js has just swapped in the copy, which can turn a page that was dark until now light
     // (Brave Search in its Auto theme): check again in the same frame, not after a white flash.
     if (text) detectSiteTheme(false);
   }, () => answer(""));
-});
+}, { signal });
+})();

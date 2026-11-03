@@ -17,14 +17,19 @@ function storage({ stored = {}, loadFails = false, saveFails = false, local = {}
     }
   }, local: {
     get: async () => local, set: async value => { localWrites.push({ ...value }); }
-  }, onChanged: { addListener(listener) { listeners.push(listener); } } };
+  }, onChanged: { addListener(listener) { listeners.push(listener); },
+    removeListener(listener) { const index = listeners.indexOf(listener); if (index >= 0) listeners.splice(index, 1); } } };
 }
 
 // Fake prefers-color-scheme: dark query whose change listeners fire on setNight().
 function appearance(nightNow) {
   const listeners = [];
-  const query = { matches: nightNow, addEventListener(name, listener) { listeners.push(listener); } };
-  return { matchMedia: () => query, setNight(value) { query.matches = value; listeners.forEach(listener => listener()); } };
+  const query = { matches: nightNow, addEventListener(name, listener, options) {
+    listeners.push(listener);
+    options?.signal?.addEventListener("abort", () => { listeners.splice(listeners.indexOf(listener), 1); }, { once: true });
+  } };
+  return { matchMedia: () => query, listenerCount: () => listeners.length,
+    setNight(value) { query.matches = value; [...listeners].forEach(listener => listener()); } };
 }
 
 const chain = colours => colours.reduceRight((parentElement, backgroundColor) => ({ backgroundColor, parentElement }), null);
@@ -48,21 +53,30 @@ class OffscreenCanvas {
 // links; fetched: what the extension hands back for a stylesheet light.js can't read; topDark: what
 // a frame's top page answers when the frame asks.
 function content({ night = false, backgrounds = lightPage, pageAt, frame = false, contentType = "text/html", scheme,
-  classes = [], links = [], fetched = "", topDark, ...options } = {}) {
+  classes = [], links = [], fetched = "", topDark, invalid = false, ...options } = {}) {
   const attributes = {}, events = {}, messages = [], filteredReads = [], dispatched = [], sent = [];
   const timers = [], observers = [], navigation = [];
   const chromeStorage = storage(options), mac = appearance(night);
+  const listen = (name, handler, options) => {
+    events[name] = handler;
+    options?.signal?.addEventListener("abort", () => { delete events[name]; }, { once: true });
+  };
   const sandbox = {
-    matchMedia: mac.matchMedia, innerWidth: 1000, innerHeight: 800, URL, OffscreenCanvas,
+    matchMedia: mac.matchMedia, innerWidth: 1000, innerHeight: 800, URL, OffscreenCanvas, AbortController,
     CustomEvent: class { constructor(type, { detail }) { this.type = type; this.detail = detail; } },
-    MutationObserver: class { constructor(callback) { this.callback = callback; this.dropped = 0; observers.push(this); } observe() {} takeRecords() { this.dropped++; return []; } },
+    MutationObserver: class { constructor(callback) { this.callback = callback; this.dropped = 0; observers.push(this); }
+      observe() {} disconnect() { this.disconnected = true; } takeRecords() { this.dropped++; return []; } },
     getComputedStyle: el => { filteredReads.push("data-eink" in attributes); return { backgroundColor: el.backgroundColor }; },
-    addEventListener(name, handler) { events[name] = handler; },
+    addEventListener: listen,
     setTimeout(callback) { timers.push(callback); return timers.length; },
-    navigation: { addEventListener(name, listener) { if (name === "currententrychange") navigation.push(listener); } },
+    clearTimeout(id) { if (id) timers[id - 1] = null; },
+    navigation: { addEventListener(name, listener, options) {
+      if (name === "currententrychange") navigation.push(listener);
+      options?.signal?.addEventListener("abort", () => { navigation.splice(navigation.indexOf(listener), 1); }, { once: true });
+    } },
     location: frame ? { href: "https://widget.example/", hostname: "widget.example", ancestorOrigins: ["https://example.com"] }
       : { href: "https://example.com/", hostname: "example.com", ancestorOrigins: [] },
-    document: { hidden: false, readyState: "complete", contentType, addEventListener(name, handler) { events[name] = handler; },
+    document: { hidden: false, readyState: "complete", contentType, addEventListener: listen,
       dispatchEvent(event) { dispatched.push(event); },
       elementFromPoint: (x, y) => pageAt ? pageAt(x, y) : chain(backgrounds),
       querySelector: selector => selector.startsWith("meta") && scheme ? { content: scheme } : null,
@@ -73,12 +87,14 @@ function content({ night = false, backgrounds = lightPage, pageAt, frame = false
         setAttribute(name, value) { attributes[name] = value; }, removeAttribute(name) { delete attributes[name]; },
         toggleAttribute(name, on) { if (on) attributes[name] = ""; else delete attributes[name]; }
       } },
-    chrome: { storage: chromeStorage, runtime: {
-      onMessage: { addListener(listener) { messages.push(listener); } },
+    chrome: { storage: chromeStorage, runtime: { id: "test-extension",
+      onMessage: { addListener(listener) { messages.push(listener); },
+        removeListener(listener) { const index = messages.indexOf(listener); if (index >= 0) messages.splice(index, 1); } },
       sendMessage: async message => { sent.push(JSON.parse(JSON.stringify(message))); return message === "eink-top" ? topDark : fetched; } } }
   };
   sandbox.window = sandbox;
   sandbox.window.top = frame ? {} : sandbox;
+  if (invalid) { delete sandbox.chrome.runtime; delete sandbox.chrome.storage; }
   vm.runInNewContext(fs.readFileSync(`${__dirname}/content.js`, "utf8"), sandbox);
   return { palette: () => attributes["data-eink"] ?? "off", siteDark: () => "data-site-dark" in attributes,
     flipsBack: () => "data-eink-frame" in attributes, filteredReads, sent,
@@ -93,9 +109,74 @@ function content({ night = false, backgrounds = lightPage, pageAt, frame = false
     // The page navigating in place, changing <html> or <body>, or stripping one of our attributes.
     navigate: () => navigation.forEach(listener => listener()), popstate: () => events.popstate(),
     pageChanges: () => observers[0].callback([]), strip: name => { delete attributes[name]; observers[0].callback([]); },
-    pendingTimers: () => timers.length, silenced: () => observers[0].dropped, location: sandbox.location,
-    tick: () => { const due = timers.splice(0); due.forEach(callback => callback()); } };
+    pendingTimers: () => timers.filter(Boolean).length, silenced: () => observers[0].dropped, location: sandbox.location,
+    invalidate: () => { delete sandbox.chrome.runtime; delete sandbox.chrome.storage; },
+    invalidateId: () => { delete sandbox.chrome.runtime.id; },
+    cssAnswers: () => dispatched.length,
+    callbacks: () => ({ ...events }),
+    resources: () => ({ observers: observers.filter(observer => !observer.disconnected).length,
+      listeners: Object.keys(events).length + navigation.length + messages.length + chromeStorage.listeners.length + mac.listenerCount() }),
+    tick: () => { const due = timers.splice(0); due.forEach(callback => callback?.()); } };
 }
+
+test("orphaned content scripts stop every observer, listener and timer without changing the page", async () => {
+  assert.deepEqual(content({ invalid: true }).resources(), { observers: 0, listeners: 0 });
+  for (const trigger of ["appearance", "mutation", "timer", "message", "route", "load", "visibilitychange", "eink-light-fetch"]) {
+    const s = content({ night: true }); await settled();
+    s.ready(); s.load(); s.load(); s.navigate(); await settled();
+    assert.equal(s.pendingTimers(), 2, "repeated load events retain only one delayed load check");
+    const callbacks = s.callbacks(), reads = s.filteredReads.length;
+    s.invalidate();
+    if (trigger === "appearance") s.setNight(false);
+    else if (trigger === "mutation") s.pageChanges();
+    else if (trigger === "timer") s.tick();
+    else if (trigger === "message") assert.equal(s.answersPing(), false);
+    else if (trigger === "route") s.navigate();
+    else callbacks[trigger]({ detail: "{}" });
+    assert.deepEqual(s.resources(), { observers: 0, listeners: 0 }, trigger);
+    assert.equal(s.pendingTimers(), 0, trigger);
+    assert.equal(s.palette(), "dark", "cleanup leaves the last appearance in place");
+    assert.equal(s.filteredReads.length, reads, "no page scanning after invalidation");
+    for (const callback of Object.values(callbacks)) callback({ detail: "{}" });
+    s.tick();
+    assert.deepEqual(s.resources(), { observers: 0, listeners: 0 }, "queued callbacks cannot restart an orphan");
+  }
+  const s = content({ night: true }); await settled();
+  s.invalidateId(); s.pageChanges();
+  assert.deepEqual(s.resources(), { observers: 0, listeners: 0 }, "a missing runtime ID suffices even if API objects remain");
+});
+
+test("pending extension replies do nothing after context invalidation", async () => {
+  let finishRead, finishFrame;
+  const s = content({ night: true, local: new Promise(resolve => { finishRead = resolve; }) });
+  s.ready(); await settled();
+  s.invalidate();
+  finishRead({ "dark:example.com:dark": true }); await settled();
+  assert.deepEqual(s.localWrites, [], "a pending theme-cache read never writes through an invalid API");
+  assert.deepEqual(s.resources(), { observers: 0, listeners: 0 });
+  const frame = content({ night: true, frame: true, topDark: new Promise(resolve => { finishFrame = resolve; }) });
+  await settled();
+  frame.invalidate();
+  finishFrame(true); await settled();
+  assert.equal(frame.siteDark(), false, "a pending message does not change state");
+  assert.deepEqual(frame.resources(), { observers: 0, listeners: 0 });
+  let finishSettings, finishCSS, rejectFrame;
+  const loading = content({ night: true, stored: new Promise(resolve => { finishSettings = resolve; }) });
+  loading.invalidate(); finishSettings({ mode: "on" }); await settled();
+  assert.equal(loading.palette(), "off", "late settings cannot apply after invalidation");
+  assert.deepEqual(loading.resources(), { observers: 0, listeners: 0 });
+  const css = content({ fetched: new Promise(resolve => { finishCSS = resolve; }),
+    links: [{ href: "https://cdn.example/site.css", sheet: { get cssRules() { throw new Error("SecurityError"); } } }] });
+  await settled();
+  css.callbacks()["eink-light-fetch"]({ detail: JSON.stringify({ id: 1, url: "https://cdn.example/site.css" }) });
+  css.invalidate(); finishCSS("@media (prefers-color-scheme: dark) {}"); await settled();
+  assert.equal(css.cssAnswers(), 0, "late fetched CSS cannot mutate the orphaned page");
+  assert.deepEqual(css.resources(), { observers: 0, listeners: 0 });
+  const rejected = content({ frame: true, topDark: new Promise((resolve, reject) => { rejectFrame = reject; }) });
+  await settled();
+  rejected.invalidate(); rejectFrame(new Error("Extension context invalidated")); await settled();
+  assert.deepEqual(rejected.resources(), { observers: 0, listeners: 0 }, "a rejected pending request also cleans up");
+});
 
 // Runs light.js against fake page APIs. sheets: document.styleSheets.
 function light({ sheets = [] } = {}) {

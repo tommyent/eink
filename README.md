@@ -100,6 +100,8 @@ Single-page apps such as X change routes and switch their theme without reloadin
 
 If the page strips `data-eink`, it is put back. The answer a page gets as it loads is kept in `chrome.storage.local` per site and appearance, and written only when it changes, so the next visit starts right. Later answers (a dark photo viewer over a light feed, say) decide only the page as it is. Each tab decides for itself, and its frames follow its top page live.
 
+After an extension reload invalidates an old content script, its next callback disconnects its observer, removes its listeners and cancels its timers. Late API replies are ignored. It leaves the page's last appearance alone; refresh the page to load the new extension code.
+
 ### The popup
 
 A small e-ink reader: a bezel around a screen in the chosen palette, in the system font. The name and icon label the On, Off and Auto switch, and the icon fades while sites show as usual. Each control is a `radiogroup` of native radio buttons styled as segments, so arrow keys move the choice, labels are clickable, and the focused segment shows a ring. Palette is disabled while E-ink is Off.
@@ -182,3 +184,5 @@ On small pages served at `sites.test`, in dark mode, it checks that:
 - a page built like X (`test/social.html`: photos drawn as inline backgrounds, an avatar inside a background banner, a photo viewer opened with `pushState` over a black backdrop, a dark theme switched on late, and a frame from another site) shows every photo in gray, never a negative, flips the frame's photo back only while the page around it is inverted, is checked again on each change, gets `data-eink` back if it strips it, and isn't rewritten while idle.
 
 The fixtures approximate real sites. The 2026-10-20 check on real Gmail (light theme) is in the commit history, and the 2026-10-31 build was compared on GitHub, MDN, Next.js docs, YouTube and BBC in headless Chrome. These tests repeat none of that.
+
+The e2e suite also reloads its isolated test extension with a page still open, then triggers appearance, navigation, DOM and stylesheet events. The invalidated script must report no uncaught errors or restore removed attributes.
