@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en" data-color-mode="dark" data-light-theme="light" data-dark-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="dark light">
+<title>Account theme with separately loaded tokens</title>
+<link id="tokens" rel="stylesheet" href="/account-dark.css">
+<style>
+  html, body { margin: 0; min-height: 100vh; background: #0d1117; color: #f0f6fc; font: 16px system-ui; }
+  html[data-color-mode="light"], [data-color-mode="light"] body { background: #fff; color: #1f2328; }
+  #text { width: 40px; height: 40px; background: currentColor; }
+  #grid { display: flex; gap: 8px; margin: 20px; }
+  .square { width: 40px; height: 40px; }
+  .level0 { background: var(--level0); } .level1 { background: var(--level1); }
+  .level2 { background: var(--level2); } .level3 { background: var(--level3); } .level4 { background: var(--level4); }
+  a { color: var(--link); } #link { width: 40px; height: 40px; background: var(--link); }
+</style>
+</head>
+<body>
+<div id="text"></div>
+<p>Contributions: Less to More</p>
+<div id="grid"><div class="square level0"></div><div class="square level1"></div><div class="square level2"></div><div class="square level3"></div><div class="square level4"></div></div>
+<a href="#activity">Contribution activity</a><div id="link"></div>
+<button id="theme">Switch account theme</button>
+<script>
+  document.querySelector("#theme").onclick = () => {
+    const mode = document.documentElement.dataset.colorMode === "dark" ? "light" : "dark";
+    const sheet = document.createElement("link");
+    sheet.rel = "stylesheet";
+    sheet.href = `/account-${mode}.css`;
+    sheet.onload = () => { document.documentElement.dataset.colorMode = mode; };
+    document.head.append(sheet);
+  };
+  if (location.search === "?reassert") {
+    const keepDark = () => {
+      if (document.documentElement.dataset.colorMode !== "dark") document.documentElement.dataset.colorMode = "dark";
+    };
+    keepDark();
+    new MutationObserver(keepDark).observe(document.documentElement, { attributes: true, attributeFilter: ["data-color-mode"] });
+  }
+</script>
+</body>
+</html>

@@ -53,7 +53,7 @@ Loading a copy from another folder makes a separate extension with its own setti
 
 - **Photos**: where the page is inverted, `img`, `video`, `picture` and `canvas` are inverted back, and so is any element drawn with an inline `background-image` `url()`. X and other React Native for Web sites draw every photo, avatar and video poster that way, with an invisible `<img>` over it. That flip is `!important`, because the same inline style can set a filter of its own (X writes `filter: brightness(1)` on each one). Nothing inside an element that is already flipped back flips again. Gmail's own UI images stay inverted with the page: sprites on `cleardot.gif` and images under `/icons/mail/` (the wordmark).
 - **Frames** get no filter of their own, because the top page's filter already covers them. A frame inside an inverted page gets `data-eink-frame`, which only flips its photos back. Frames go by the top page's site for This site, and by their own tab's top page for whether the site is dark anyway: the top page tells `bg.js` whenever its answer changes, `bg.js` passes it to every frame in that tab, and a frame asks its top page as it starts.
-- **Fullscreen content** is drawn outside the root filter, so it gets a filter of its own and stays black and white, in the tones photos have on that page: gray under Dark (a little dimmed on a page E-ink inverts, full range on one that is dark anyway, such as a streaming site's player page) and warm gray under Warm. Nothing inside it flips back. A fullscreen frame gets the page's filter, because its content still flips its photos back, and a frame inside a fullscreen player gets `invert(1)` while the page is inverted, which adds up to the same. When the whole page goes fullscreen (as on YouTube), the page filter simply stays. The filters are kept in `--eink-page` and `--eink-photo` on `<html>`.
+- **Fullscreen content** is drawn outside the root filter, so it gets a filter of its own and stays black and white, in the tones photos have on that page: gray with softened contrast under Dark and warm gray under Warm. Nothing inside it flips back. A fullscreen frame gets the page's filter, because its content still flips its photos back, and a frame inside a fullscreen player gets `invert(1)` while the page is inverted, which adds up to the same. When the whole page goes fullscreen (as on YouTube), the page filter simply stays. The filters are kept in `--eink-page` and `--eink-photo` on `<html>`.
 
 ### Light design first
 
@@ -90,7 +90,7 @@ A dark theme saved on the site itself would turn light under the plain filters. 
 - a `dark` class on `<html>` or `<body>`;
 - or else a vote over twelve points on a grid, each reading the first opaque background behind it. Colours come in whatever space Chrome computes them (`oklch()` for Tailwind 4, `oklab()` for `color-mix()`) and are converted through a 1 × 1 canvas. Computed styles ignore the filter, and `data-eink` is removed while it reads, so the white canvas doesn't count.
 
-If most points are dark, it sets `data-site-dark`: Dark then only removes colour, and Warm inverts the page to paper first. PDFs are skipped, because Chrome's viewer is dark around a white page.
+If most points are dark, it sets `data-site-dark`: Dark uses `grayscale(1) contrast(0.8)` to soften near-black backgrounds and bright text, and Warm inverts the page to paper first. A GitHub-style #0d1117 page renders as #272727 under Dark. The site's theme attributes and selected theme stylesheets are left alone: some sites only load the colours for their selected theme. PDFs are skipped, because Chrome's viewer is dark around a white page.
 
 Single-page apps such as X change routes and switch their theme without reloading, so the page is checked again, at most every half second:
 
@@ -125,7 +125,7 @@ Chrome doesn't let extensions change its own pages (`chrome://` settings, extens
 
 ## Known limits
 
-- **A dark theme saved on the site itself** (an account setting such as YouTube's or Gmail's own dark theme, or a theme picked on the site and kept in its storage) can't be forced light. The dark-site check then gives Dark as grayscale only, close to the site's own black, and Warm as paper. Setting the site's own appearance to "system" or "device" lets the light design come through.
+- **A dark theme saved on the site itself** (an account setting such as YouTube's or Gmail's own dark theme, or a theme picked on the site and kept in its storage) stays selected. The dark-site check gives Dark as grayscale with softened contrast and Warm as paper. Setting the site's own appearance to "system" or "device" lets the light design come through. Filtered shades still depend on the site's original colours.
 - **Switching off** (This site, or E-ink Off) removes the filter at once, but a page already open keeps its light design until it reloads, and then shows its own dark mode again.
 - **Frames from another site inside a site switched off** still get the light design, because `light.js` goes by each frame's own host.
 - **Shadow DOM**: photos inside shadow roots stay inverted, because page CSS doesn't reach into them, and styles in declarative shadow DOM (`<template shadowrootmode>`) aren't rewritten to light.
@@ -170,6 +170,7 @@ On a Gmail-like inbox (`test/fixture.html`, served at a `mail.google.com` URL, p
 On small pages served at `sites.test`, in dark mode, it checks that:
 
 - six ways of picking dark mode (`test/force.html`, with a stylesheet from another origin, `test/force-x.css`) all show the light design while Auto still turns on;
+- a dark account theme with separately loaded light/dark tokens (`test/account-theme.html`) keeps its selected theme, contribution levels and links in both palettes, including site reassertion, body swaps and restored palette attributes;
 - This site turns a page off and on live and keeps `light.js` off it, also on an IPv6 address and a host name with an underscore;
 - `chrome://version` disables This site;
 - a saved dark theme (`test/saved-dark.html`) falls back to grayscale only;

@@ -22,11 +22,11 @@ html[data-eink="dark"] {
   filter: var(--eink-page);
 }
 
-/* A site that is dark anyway: Dark only drops colour, Warm inverts it to paper first. Photos
+/* A site that is dark anyway: Dark softens contrast, Warm inverts it to paper first. Photos
    aren't flipped back under Dark, and under Warm the flip-back cancels the page's inversion. */
 html[data-eink="dark"][data-site-dark] {
-  --eink-page: grayscale(1);
-  --eink-photo: grayscale(1);
+  --eink-page: grayscale(1) contrast(0.8);
+  --eink-photo: grayscale(1) contrast(0.8);
 }
 
 html[data-eink="warm"][data-site-dark] {

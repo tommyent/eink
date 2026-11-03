@@ -227,7 +227,7 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   await gmail.reload();
   await palette("warm");
 
-  // Gmail's own dark theme: detected, Dark only drops colour, Warm still gives paper, popup says so.
+  // Gmail's own dark theme: detected, Dark softens contrast, Warm still gives paper, popup says so.
   await gmail.goto(inbox.replace("/u/0/", "/u/1/"));
   await gmail.waitForFunction(() => document.documentElement.hasAttribute("data-site-dark"));
   await palette("warm");
@@ -235,7 +235,7 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   await checkGmail("gmail-dark-theme-warm", "warm");
   await choose("palette", "dark");
   await palette("dark");
-  assert.equal(await filter(), "grayscale(1)");
+  assert.equal(await filter(), "grayscale(1) contrast(0.8)");
   await checkGmail("gmail-dark-theme-dark", "dark");
   await popup.reload();
   await popup.waitForSelector("#theme-note:not([hidden])");
@@ -248,9 +248,10 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   const photo = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200"><defs><linearGradient id="g"><stop offset="0" stop-color="#000"/>`
     + `<stop offset="1" stop-color="#fff"/></linearGradient></defs><rect width="300" height="200" fill="url(#g)"/><rect y="80" width="300" height="40" fill="#f0c040"/></svg>`;
   const images = { "/light.svg": svg("#ffffff"), "/dark.svg": svg("#000000"), "/photo.svg": photo };
-  const pages = ["/force.html", "/saved-dark.html", "/plain.html", "/fullscreen.html", "/oklch.html", "/theme.html", "/auto-theme.html"];
+  const pages = ["/force.html", "/saved-dark.html", "/plain.html", "/fullscreen.html", "/oklch.html", "/theme.html", "/auto-theme.html", "/account-theme.html"];
   await context.route("https://sites.test/**", route => {
     const { pathname } = new URL(route.request().url());
+    if (["/account-dark.css", "/account-light.css"].includes(pathname)) return route.fulfill({ contentType: "text/css", body: fs.readFileSync(path.join(__dirname, pathname), "utf8") });
     if (images[pathname]) return route.fulfill({ contentType: "image/svg+xml", body: images[pathname] });
     if (pages.includes(pathname)) return route.fulfill({ contentType: "text/html", body: fs.readFileSync(path.join(__dirname, pathname), "utf8") });
     return route.fulfill({ status: 404, body: "" });
@@ -340,7 +341,7 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   // A dark theme the site keeps for itself: the dark-site check takes over, as for Gmail's own.
   await site.goto("https://sites.test/saved-dark.html");
   await site.waitForFunction(() => document.documentElement.hasAttribute("data-site-dark"));
-  assert.equal(await siteFilter(), "grayscale(1)");
+  assert.equal(await siteFilter(), "grayscale(1) contrast(0.8)");
   await site.screenshot({ path: path.join(shots, "sites-saved-dark.png") });
 
   // Colours Chrome computes as oklch() and oklab(): a near-white page is light, a near-black one dark.
@@ -351,6 +352,60 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
     assert.equal(await site.evaluate(() => document.documentElement.hasAttribute("data-site-dark")), dark,
       `the ${dark ? "near-black" : "near-white"} OKLCH page ${dark ? "isn't" : "is"} read as dark`);
   }
+
+  // Account themes may ship only the selected theme's tokens. Never switch their attributes.
+  await aim("sites.test");
+  const swatch = async selector => {
+    const box = await site.locator(selector).boundingBox();
+    return pixel(site, Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2));
+  };
+  for (const look of ["dark", "warm"]) for (const query of ["", "?reassert"]) {
+    await choose("palette", look);
+    await site.goto(`https://sites.test/account-theme.html${query}`);
+    await siteEink(look);
+    await site.waitForFunction(() => performance.now() > 3500);
+    const colours = { page: await pixel(site, 640, 700), text: await swatch("#text"), link: await swatch("#link"), grid: [] };
+    for (let i = 0; i < 5; i++) colours.grid.push(await swatch(`.level${i}`));
+    console.log(`account ${look}${query}: ${JSON.stringify(colours)}`);
+    console.log(`account state: ${JSON.stringify(await site.evaluate(() => ({ mode: document.documentElement.dataset.colorMode,
+      filter: getComputedStyle(document.documentElement).filter, level: getComputedStyle(document.querySelector(".level1")).backgroundColor })))}`);
+    assert.equal(await site.getAttribute("html", "data-color-mode"), "dark", "the account's theme stays selected");
+    assert.equal(await site.locator('link[href="/account-light.css"]').count(), 0, "the account has not loaded its light tokens");
+    assert.ok(contrast(colours.text, colours.page) >= 4.5, "account text stays readable");
+    assert.ok(contrast(colours.link, colours.page) >= 4.5, "account links stay readable");
+    for (let i = 1; i < 5; i++) assert.ok(Math.abs(colours.grid[i][0] - colours.grid[i - 1][0]) > 5, "contribution levels remain distinguishable");
+    for (const rgb of [colours.page, colours.text, colours.link, ...colours.grid]) {
+      assert.ok(look === "dark" ? Math.max(...rgb) - Math.min(...rgb) <= 2 : rgb[0] >= rgb[1] && rgb[1] >= rgb[2], "the palette stays applied, without original accent colours");
+    }
+    if (look === "dark") assert.ok(colours.page[0] >= 35 && colours.page[0] <= 45, "near-black account page maps to the Dark palette's grey");
+    else assert.ok(colours.page[0] > 230 && colours.page[0] - colours.page[2] > 15, "Warm stays paper");
+    await site.screenshot({ path: path.join(shots, `account-${look}${query ? "-reassert" : ""}.png`) });
+    if (!query) {
+      await site.click("#theme");
+      await site.waitForFunction(() => document.documentElement.dataset.colorMode === "light");
+      await siteDarkIs(false);
+      assert.equal(await site.locator('link[href="/account-light.css"]').count(), 1, "only the site's theme switch loads light tokens");
+      assert.equal(await site.locator("a").evaluate(el => getComputedStyle(el).color), "rgb(9, 105, 218)");
+      await site.click("#theme");
+      await site.waitForFunction(() => document.documentElement.dataset.colorMode === "dark");
+      await siteDarkIs(true);
+      assert.deepEqual(await swatch("#link"), colours.link);
+    }
+    await site.evaluate(() => document.body.replaceWith(document.body.cloneNode(true)));
+    await new Promise(resolve => setTimeout(resolve, 700));
+    assert.deepEqual(await pixel(site, 640, 700), colours.page, "body swaps retain the palette");
+    await site.evaluate(() => document.documentElement.removeAttribute("data-eink"));
+    await siteEink(look);
+    assert.deepEqual(await swatch("#link"), colours.link, "restoring a stripped palette removes accent colour again");
+    await choose("site", "off");
+    await site.waitForFunction(() => !document.documentElement.hasAttribute("data-eink"));
+    assert.deepEqual(await pixel(site, 640, 700), [13, 17, 23]);
+    assert.deepEqual(await swatch("#link"), [88, 166, 255]);
+    await choose("site", "on");
+    await siteEink(look);
+    assert.deepEqual(await swatch("#link"), colours.link);
+  }
+  await choose("palette", "dark");
 
   // Themes switched with data attributes, on <html> (Bootstrap's data-bs-theme) and on <body>
   // (GitHub's data-color-mode), also on a <body> swapped in without a reload, as Turbo does.
@@ -408,7 +463,7 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   }
   const ramp = [0.05, 0.25, 0.5, 0.75, 0.95];
   const pageFilters = { dark: "invert(0.85) grayscale(1)", warm: "grayscale(1) brightness(0.85) sepia(0.45) brightness(0.97)",
-    "dark on a dark page": "grayscale(1)", "warm on a dark page": "invert(1) brightness(1.12) grayscale(1) brightness(0.85) sepia(0.45) brightness(0.97)" };
+    "dark on a dark page": "grayscale(1) contrast(0.8)", "warm on a dark page": "invert(1) brightness(1.12) grayscale(1) brightness(0.85) sepia(0.45) brightness(0.97)" };
   const blackAndWhite = (look, [r, g, b]) => look === "dark"
     ? Math.max(r, g, b) - Math.min(r, g, b) <= 6 && r > 130
     : r >= g - 3 && g >= b - 3 && r - b <= 50 && r > 120;
