@@ -25,13 +25,42 @@ const readCache = key => reads[key] ??= chrome.storage.local.get(key).then(value
 let observer = null;
 const quietly = write => { write(); observer?.takeRecords(); };
 
+let active = false;
+const savedThemes = new Map();
+let resistedThemes = new WeakSet();
+function lightDesign() {
+  let changed = false;
+  const elements = [root, document.body].filter(Boolean);
+  for (const [el, original] of savedThemes) {
+    if (el.getAttribute("data-color-mode") !== "light") {
+      // The site took control again: let the dark-site fallback handle it instead of fighting.
+      resistedThemes.add(el);
+      savedThemes.delete(el);
+    } else if (!active || !elements.includes(el) || !el.getAttribute("data-light-theme")) {
+      el.setAttribute("data-color-mode", original);
+      savedThemes.delete(el);
+      changed = true;
+    }
+  }
+  if (!active) resistedThemes = new WeakSet();
+  else for (const el of elements) {
+    if (!resistedThemes.has(el) && el.getAttribute("data-color-mode") === "dark" && el.getAttribute("data-light-theme")) {
+      savedThemes.set(el, "dark");
+      el.setAttribute("data-color-mode", "light");
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 function apply(values = {}) {
   for (const key in defaults) if (key in values) settings[key] = values[key] ?? defaults[key];
   // Auto: e-ink only while the Mac is in dark mode; macOS Auto flips that at sunset.
   const off = Array.isArray(settings.off) ? settings.off : [];
-  const active = (settings.mode === "on" || (settings.mode === "auto" && night.matches)) && !off.includes(site);
+  active = (settings.mode === "on" || (settings.mode === "auto" && night.matches)) && !off.includes(site);
   const palette = settings.palette === "warm" ? "warm" : "dark";
   quietly(() => {
+    if (isTop && lightDesign()) recheck();
     if (!isTop) {
       // Dark inverts a light page, Warm inverts a dark one.
       root.toggleAttribute("data-eink-frame", active && (palette === "dark") !== siteDark);
@@ -105,6 +134,7 @@ function detectSiteTheme(remember = true) {
   const palette = root.getAttribute("data-eink");
   let dark;
   quietly(() => {
+    lightDesign();
     root.removeAttribute("data-eink");
     try { dark = pageIsDark(); } finally { if (palette) root.setAttribute("data-eink", palette); }
   });

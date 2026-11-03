@@ -248,7 +248,7 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
   const photo = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200"><defs><linearGradient id="g"><stop offset="0" stop-color="#000"/>`
     + `<stop offset="1" stop-color="#fff"/></linearGradient></defs><rect width="300" height="200" fill="url(#g)"/><rect y="80" width="300" height="40" fill="#f0c040"/></svg>`;
   const images = { "/light.svg": svg("#ffffff"), "/dark.svg": svg("#000000"), "/photo.svg": photo };
-  const pages = ["/force.html", "/saved-dark.html", "/plain.html", "/fullscreen.html", "/oklch.html", "/theme.html", "/auto-theme.html"];
+  const pages = ["/force.html", "/saved-dark.html", "/plain.html", "/fullscreen.html", "/oklch.html", "/theme.html", "/auto-theme.html", "/github-theme.html"];
   await context.route("https://sites.test/**", route => {
     const { pathname } = new URL(route.request().url());
     if (images[pathname]) return route.fulfill({ contentType: "image/svg+xml", body: images[pathname] });
@@ -351,6 +351,82 @@ const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
     assert.equal(await site.evaluate(() => document.documentElement.hasAttribute("data-site-dark")), dark,
       `the ${dark ? "near-black" : "near-white"} OKLCH page ${dark ? "isn't" : "is"} read as dark`);
   }
+
+  // An explicit account theme must render like the same site's light design under either palette.
+  const accountColours = {};
+  for (const look of ["dark", "warm"]) {
+    await choose("palette", look);
+    accountColours[look] = {};
+    for (const theme of ["dark", "light"]) {
+      await site.goto(`https://sites.test/github-theme.html${theme === "light" ? "?light" : ""}`);
+      await siteEink(look);
+      await site.waitForFunction(() => performance.now() > 3500);
+      accountColours[look][theme] = [await pixel(site, 640, 700), await pixel(site, 50, 50)];
+      console.log(`account ${theme} under ${look}: page/text ${accountColours[look][theme].map(hex).join(" / ")}`);
+    }
+  }
+  for (const look of ["dark", "warm"]) assert.deepEqual(accountColours[look].dark, accountColours[look].light,
+    `explicit dark account theme matches the light design under ${look}`);
+  await aim("sites.test");
+  for (const look of ["dark", "warm"]) {
+    await choose("palette", look);
+    await site.goto("https://sites.test/github-theme.html");
+    await siteEink(look);
+    await siteDarkIs(false);
+    const modeIs = mode => site.waitForFunction(value => document.documentElement.dataset.colorMode === value, mode);
+    await modeIs("light");
+    await site.evaluate(() => document.body.replaceWith(document.body.cloneNode(true)));
+    await new Promise(resolve => setTimeout(resolve, 700));
+    assert.deepEqual([await pixel(site, 640, 700), await pixel(site, 50, 50)], accountColours[look].light,
+      `Turbo body swap keeps the ${look} palette`);
+    for (const control of ["site", "mode"]) {
+      await choose(control, "off");
+      await modeIs("dark");
+      await site.waitForFunction(() => !document.documentElement.hasAttribute("data-eink"));
+      assert.deepEqual(await pixel(site, 640, 700), [13, 17, 23], `${control} off restores the account theme`);
+      await choose(control, "on");
+      await modeIs("light");
+      await siteDarkIs(false);
+      assert.deepEqual(await pixel(site, 640, 700), accountColours[look].light[0]);
+    }
+    // A site that insists on its theme wins; no observer loop keeps rewriting it.
+    await site.evaluate(() => { document.documentElement.dataset.colorMode = "dark"; });
+    await siteDarkIs(true);
+    await site.waitForFunction(() => performance.now() > 3500);
+    assert.equal(await site.evaluate(() => new Promise(resolve => {
+      let changes = 0;
+      const observer = new MutationObserver(records => { changes += records.length; });
+      observer.observe(document.documentElement, { attributes: true });
+      setTimeout(() => { observer.disconnect(); resolve(changes); }, 1200);
+    })), 0, "the site and E-ink do not fight over the theme");
+    await choose("mode", "off");
+    await modeIs("dark");
+    await choose("mode", "auto");
+    await modeIs("light");
+    await site.emulateMedia({ colorScheme: "light" });
+    await modeIs("dark");
+    await site.emulateMedia({ colorScheme: "dark" });
+    await modeIs("light");
+    // The same contract on <body>, including a replacement carrying the site's dark choice.
+    await site.evaluate(() => {
+      document.documentElement.removeAttribute("data-color-mode");
+      document.documentElement.removeAttribute("data-light-theme");
+      document.body.dataset.colorMode = "dark";
+      document.body.dataset.lightTheme = "light";
+    });
+    await site.waitForFunction(() => document.body.dataset.colorMode === "light");
+    await site.evaluate(() => {
+      const next = document.body.cloneNode(true);
+      next.dataset.colorMode = "dark";
+      document.body.replaceWith(next);
+    });
+    await site.waitForFunction(() => document.body.dataset.colorMode === "light");
+    await choose("site", "off");
+    await site.waitForFunction(() => document.body.dataset.colorMode === "dark");
+    await choose("site", "on");
+    await site.waitForFunction(() => document.body.dataset.colorMode === "light");
+  }
+  await choose("palette", "dark");
 
   // Themes switched with data attributes, on <html> (Bootstrap's data-bs-theme) and on <body>
   // (GitHub's data-color-mode), also on a <body> swapped in without a reload, as Turbo does.
